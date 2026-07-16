@@ -74,6 +74,15 @@
   tfoot td{font-weight:700;border-top:2px solid var(--border);border-bottom:none;background:var(--panel2)}
   .err{border:1px solid var(--warnbd);background:var(--warnbg);color:var(--warntx);border-radius:12px;padding:16px}
   .foot{color:var(--muted);font-size:12px;margin-top:26px;line-height:1.7}
+  /* 기간(달력) 바 */
+  .rangebar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 18px;font-size:13px;color:var(--muted)}
+  .rangebar:empty{display:none}
+  .rangebar .rb-label{font-weight:700;color:var(--text)}
+  .rangebar input[type=date]{font:inherit;padding:6px 9px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text)}
+  .rangebar button{padding:6px 11px;font-size:12.5px}
+  .rangebar button.rb-on{background:var(--net);border-color:var(--net);color:#fff}
+  .rangebar .rb-info{margin-left:auto;font-size:12px;color:var(--muted)}
+  @media(max-width:640px){.rangebar .rb-info{margin-left:0;width:100%}}
   /* 월간보고 뷰 */
   .repbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
   .repbar select{font:inherit;padding:8px 12px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text)}
@@ -114,6 +123,8 @@
       <button class="primary" id="refreshBtn">↻ 새로고침</button>
     </div>
   </header>
+
+  <div class="rangebar" id="rangeBar"></div>
 
   <div id="content">
     <div class="loading"><span class="spin"></span>데이터를 불러오는 중…</div>
@@ -331,24 +342,61 @@ function barChart(el, labels, series, {fmt=wonShort, unit=""}={}){
 }
 
 /* ---- 렌더 ---- */
-let STATE={daily:[],hasSalesUrl:false,mode:"week",loadedAt:null,brandId:CONFIG.BRANDS[0].id,cache:{}};
+let STATE={daily:[],hasSalesUrl:false,mode:"week",loadedAt:null,brandId:CONFIG.BRANDS[0].id,cache:{},startDate:null,endDate:null};
 function currentBrand(){ return CONFIG.BRANDS.find(b=>b.id===STATE.brandId)||CONFIG.BRANDS[0]; }
+
+/* ---- 기간(달력) 필터 ---- */
+function filteredDaily(){
+  if(!STATE.startDate && !STATE.endDate) return STATE.daily;
+  return STATE.daily.filter(r=> (!STATE.startDate||r.key>=STATE.startDate) && (!STATE.endDate||r.key<=STATE.endDate));
+}
+function dateShift(key,days){ const d=new Date(key+"T00:00:00"); d.setDate(d.getDate()+days);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function rangeActive(){ return !!(STATE.startDate||STATE.endDate); }
+function setRangeBar(){
+  const bar=$("#rangeBar"); if(!bar) return;
+  if(!STATE.daily.length){ bar.innerHTML=""; return; }
+  const min=STATE.daily[0].key, max=STATE.daily[STATE.daily.length-1].key;
+  const s=STATE.startDate||min, e=STATE.endDate||max;
+  const n=filteredDaily().length;
+  bar.innerHTML=
+    `<span class="rb-label">📅 기간</span>
+     <input type="date" id="rbStart" min="${min}" max="${max}" value="${s}">
+     <span>~</span>
+     <input type="date" id="rbEnd" min="${min}" max="${max}" value="${e}">
+     <button data-preset="all"${!rangeActive()?' class="rb-on"':''}>전체</button>
+     <button data-preset="30">최근 30일</button>
+     <button data-preset="90">최근 90일</button>
+     <button data-preset="month">이번 달</button>
+     <span class="rb-info">${rangeActive()?`선택 ${s} ~ ${e} · ${n}일`:`전체 ${min} ~ ${max} · ${n}일`}</span>`;
+  $("#rbStart").addEventListener("change",ev=>{ STATE.startDate=ev.target.value||null; setRangeBar(); render(); });
+  $("#rbEnd").addEventListener("change",ev=>{ STATE.endDate=ev.target.value||null; setRangeBar(); render(); });
+  bar.querySelectorAll("button[data-preset]").forEach(btn=>btn.addEventListener("click",()=>{
+    const p=btn.dataset.preset;
+    if(p==="all"){ STATE.startDate=null; STATE.endDate=null; }
+    else if(p==="month"){ STATE.startDate=max.slice(0,7)+"-01"; STATE.endDate=max; }
+    else { const days=parseInt(p); let st=dateShift(max,-(days-1)); if(st<min)st=min; STATE.startDate=st; STATE.endDate=max; }
+    setRangeBar(); render();
+  }));
+}
 
 function render(){
   const c=$("#content");
-  const groups=groupBy(STATE.daily, STATE.mode);
+  const daily=filteredDaily();
+  const groups=groupBy(daily, STATE.mode);
   const recent=groups.slice(-CONFIG.CHART_MAX);
   const view=[...groups].reverse(); // 표: 최신 위로
 
   // KPI (실판매액이 입력된 날 기준)
   let kCost=0,kGross=0,kNet=0,anyG=false,anyN=false, totalCostAll=0;
-  for(const r of STATE.daily){
+  for(const r of daily){
     totalCostAll+=r.cost;
     if(r.gross!=null||r.net!=null){ kCost+=r.cost; if(r.gross!=null){kGross+=r.gross;anyG=true;} if(r.net!=null){kNet+=r.net;anyN=true;} }
   }
   const kNom = (kCost>0&&anyG)? kGross/kCost*100 : null;
   const kAdj = (kCost>0&&anyN)? kNet/kCost*100 : null;
   const kKeep= (anyG&&kGross>0&&anyN)? kNet/kGross*100 : null;
+  const kAdShare = (anyN&&kNet>0)? kCost/kNet*100 : null; // 광고비 비중 = 광고비/실판매액
 
   let html="";
 
@@ -366,10 +414,12 @@ function render(){
   }
 
   // KPI 카드
+  const periodLbl = rangeActive()?"선택 기간":"전체 기간";
   const cards=[
-    {lab:`총 광고비 <span class="muted" style="font-size:11px">(전체 기간)</span>`, val:won(totalCostAll)},
+    {lab:`총 광고비 <span class="muted" style="font-size:11px">(${periodLbl})</span>`, val:won(totalCostAll)},
     {lab:`<span class="dot" style="background:var(--gross)"></span>총 판매액`, val:anyG?won(kGross):"—"},
     {lab:`<span class="dot" style="background:var(--net)"></span>총 실판매액`, val:anyN?won(kNet):"—"},
+    {lab:`<span class="dot" style="background:var(--cost)"></span>광고비 비중 <span class="muted" style="font-size:11px">(광고비/실판매액)</span>`, val:kAdShare==null?"—":pct(kAdShare,1)},
     {lab:`<span class="dot" style="background:var(--roas-nom)"></span>명목 ROAS`, val:kNom==null?"—":pct(kNom)},
     {lab:`<span class="dot" style="background:var(--roas-adj)"></span>보정 ROAS`, val:kAdj==null?"—":pct(kAdj)},
     {lab:`보정률 <span class="muted" style="font-size:11px">(실/판매액)</span>`, val:kKeep==null?"—":pct(kKeep,1)},
@@ -403,19 +453,21 @@ function render(){
   // 표
   html+=`<div class="panel">
     <h2>${STATE.mode==="week"?"주간":"월별"} 상세</h2>
-    <p class="hint">명목 ROAS = 판매액÷광고비 · 보정 ROAS = 실판매액÷광고비 · 광고 ROAS = 광고전환매출÷광고비(광고플랫폼 기준)</p>
+    <p class="hint">명목 ROAS = 판매액÷광고비 · 보정 ROAS = 실판매액÷광고비 · 광고비율 = 광고비÷실판매액 · 광고 ROAS = 광고전환매출÷광고비(광고플랫폼 기준)</p>
     <div class="tblwrap"><table>
       <thead><tr>
-        <th>기간</th><th>광고비</th><th>판매액</th><th>실판매액</th><th>보정률</th>
+        <th>기간</th><th>광고비</th><th>판매액</th><th>실판매액</th><th title="광고비 ÷ 실판매액">광고비율</th><th>보정률</th>
         <th>명목 ROAS</th><th>보정 ROAS</th><th>광고전환매출</th><th>광고 ROAS</th>
       </tr></thead><tbody>`;
   for(const g of view){
     const lbl = g.partial ? `<span class="partial" title="이 기간에 광고는 있으나 일부 날짜만 판매액이 입력됨">${g.label} *</span>` : g.label;
+    const adRate = g.netV? g.cost/g.netV*100 : null;
     html+=`<tr>
       <td>${lbl}</td>
       <td class="num">${won(g.cost)}</td>
       <td class="num">${won(g.grossV)}</td>
       <td class="num">${won(g.netV)}</td>
+      <td class="num">${adRate==null?'<span class="muted">—</span>':pct(adRate,1)}</td>
       <td class="num">${g.keepRate==null?'<span class="muted">—</span>':pct(g.keepRate,1)}</td>
       <td class="num">${g.roasNom==null?'<span class="muted">—</span>':pct(g.roasNom)}</td>
       <td class="num">${g.roasAdj==null?'<span class="muted">—</span>':`<span class="${g.roasAdj>=100?'pos':'neg'}">${pct(g.roasAdj)}</span>`}</td>
@@ -427,10 +479,12 @@ function render(){
   const sum=view.reduce((a,g)=>{a.cost+=g.cost;a.adRev+=g.adRev; if(g.grossV!=null){a.gross+=g.grossV;a.g=true;} if(g.netV!=null){a.net+=g.netV;a.n=true;} return a;},{cost:0,adRev:0,gross:0,net:0,g:false,n:false});
   const sNom=sum.g&&sum.cost?sum.gross/sum.cost*100:null, sAdj=sum.n&&sum.cost?sum.net/sum.cost*100:null;
   const sKeep=sum.g&&sum.gross&&sum.n?sum.net/sum.gross*100:null;
+  const sAdRate=sum.n&&sum.net?sum.cost/sum.net*100:null;
   html+=`</tbody><tfoot><tr>
       <td>합계</td><td class="num">${won(sum.cost)}</td>
       <td class="num">${sum.g?won(sum.gross):"—"}</td>
       <td class="num">${sum.n?won(sum.net):"—"}</td>
+      <td class="num">${sAdRate==null?"—":pct(sAdRate,1)}</td>
       <td class="num">${sKeep==null?"—":pct(sKeep,1)}</td>
       <td class="num">${sNom==null?"—":pct(sNom)}</td>
       <td class="num">${sAdj==null?"—":pct(sAdj)}</td>
@@ -614,6 +668,7 @@ function renderReportDoc(months){
 
 async function showReport(force){
   $("#brandSeg").style.display="none";
+  $("#rangeBar").style.display="none";
   $("#content").innerHTML=`<div class="loading"><span class="spin"></span>월간 보고서를 준비하는 중…</div>`;
   if(!CONFIG.REPORT_CSV.trim()){ $("#content").innerHTML=reportSetupHelp(false); $("#footnote").innerHTML=""; return; }
   await ensureAllBrandAd();
@@ -669,7 +724,7 @@ async function load(force){
   if(!force && STATE.cache[brand.id]){
     const c=STATE.cache[brand.id];
     STATE.daily=c.daily; STATE.hasSalesUrl=c.hasSalesUrl; STATE.loadedAt=c.loadedAt;
-    render(); if(c.salesFailed) salesFailBanner(); setFoot(); return;
+    render(); if(c.salesFailed) salesFailBanner(); setFoot(); setRangeBar(); return;
   }
   $("#content").innerHTML=`<div class="loading"><span class="spin"></span>${brand.name} 데이터를 불러오는 중…</div>`;
   // 광고 데이터
@@ -696,6 +751,7 @@ async function load(force){
   render();
   if(salesFailed) salesFailBanner();
   setFoot();
+  setRangeBar();
 }
 function salesFailBanner(){
   $("#content").insertAdjacentHTML("afterbegin",
@@ -709,6 +765,7 @@ $("#brandSeg").innerHTML = CONFIG.BRANDS.map((b,i)=>
 $("#brandSeg").addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
   STATE.brandId=b.dataset.b;
+  STATE.startDate=null; STATE.endDate=null;   // 브랜드 전환 시 기간 초기화
   [...$("#brandSeg").children].forEach(x=>x.classList.toggle("on",x===b));
   load(false);
 });
@@ -724,8 +781,9 @@ $("#periodSeg").addEventListener("click",e=>{
   if(STATE.mode==="report"){ showReport(false); }
   else {
     $("#brandSeg").style.display="";
+    $("#rangeBar").style.display="";
     updateTitle();
-    if(STATE.daily.length) render(); else load(false);
+    if(STATE.daily.length){ render(); setRangeBar(); } else load(false);
   }
 });
 load(false);
