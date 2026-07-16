@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>29CM 프로젝트슬립 광고 리포트</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --panel2:#fbfcfe; --text:#0f172a; --muted:#64748b;
+    --border:#e2e8f0; --grid:#eef2f6;
+    --gross:#94a3b8; --net:#2563eb; --cost:#ef4444;
+    --roas-nom:#8b5cf6; --roas-adj:#10b981; --roas-ad:#f59e0b;
+    --good:#059669; --bad:#dc2626; --warnbg:#fff7ed; --warnbd:#fed7aa; --warntx:#9a3412;
+    --shadow:0 1px 2px rgba(15,23,42,.04),0 4px 16px rgba(15,23,42,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0b1220; --panel:#111a2b; --panel2:#0f1728; --text:#e5edf7; --muted:#93a4bd;
+      --border:#22304a; --grid:#1a2740;
+      --gross:#64748b; --net:#3b82f6; --cost:#f87171;
+      --roas-nom:#a78bfa; --roas-adj:#34d399; --roas-ad:#fbbf24;
+      --good:#34d399; --bad:#f87171; --warnbg:#2a1c0e; --warnbd:#7c4a1e; --warntx:#fdba74;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;line-height:1.45}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+  header.top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;justify-content:space-between;margin-bottom:20px}
+  h1{font-size:22px;margin:0;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button{font:inherit;cursor:pointer;border:1px solid var(--border);background:var(--panel);
+    color:var(--text);padding:8px 14px;border-radius:9px;transition:.15s}
+  button:hover{border-color:var(--net)}
+  button.primary{background:var(--net);border-color:var(--net);color:#fff}
+  .seg{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:3px}
+  .seg button{border:none;background:transparent;padding:7px 16px;border-radius:8px;color:var(--muted)}
+  .seg button.on{background:var(--net);color:#fff}
+  .banner{border:1px solid var(--warnbd);background:var(--warnbg);color:var(--warntx);
+    border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:13.5px}
+  .banner b{color:inherit}
+  .banner ol{margin:8px 0 0;padding-left:20px}
+  .banner code{background:rgba(0,0,0,.08);padding:1px 6px;border-radius:5px;font-size:12px}
+  @media(prefers-color-scheme:dark){.banner code{background:rgba(255,255,255,.1)}}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:22px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow)}
+  .card .lab{font-size:12px;color:var(--muted);margin-bottom:7px;display:flex;align-items:center;gap:6px}
+  .card .val{font-size:22px;font-weight:700;letter-spacing:-.02em}
+  .card .val small{font-size:13px;font-weight:600;color:var(--muted)}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px 18px 8px;box-shadow:var(--shadow);margin-bottom:20px}
+  .panel h2{font-size:15px;margin:0 0 4px}
+  .panel .hint{font-size:12px;color:var(--muted);margin:0 0 12px}
+  .charts{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:820px){.charts{grid-template-columns:1fr}}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:2px 0 10px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .chartbox{width:100%;overflow-x:auto}
+  svg text{fill:var(--muted)}
+  .tblwrap{overflow-x:auto;margin-top:4px}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:720px}
+  th,td{padding:9px 11px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:600;font-size:12px;position:sticky;top:0;background:var(--panel);text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  tbody tr:hover{background:var(--panel2)}
+  td.num{font-variant-numeric:tabular-nums}
+  .pos{color:var(--good);font-weight:600}
+  .neg{color:var(--bad);font-weight:600}
+  .muted{color:var(--muted)}
+  .partial{cursor:help;border-bottom:1px dotted var(--muted)}
+  tfoot td{font-weight:700;border-top:2px solid var(--border);border-bottom:none;background:var(--panel2)}
+  .err{border:1px solid var(--warnbd);background:var(--warnbg);color:var(--warntx);border-radius:12px;padding:16px}
+  .foot{color:var(--muted);font-size:12px;margin-top:26px;line-height:1.7}
+  /* 월간보고 뷰 */
+  .repbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+  .repbar select{font:inherit;padding:8px 12px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text)}
+  .repdoc{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:22px 24px;box-shadow:var(--shadow)}
+  .rep-brand{padding:18px 0;border-bottom:1px solid var(--border)}
+  .rep-brand:last-child{border-bottom:none}
+  .rep-h{font-size:15.5px;font-weight:700;letter-spacing:-.01em;margin:0 0 8px}
+  .rep-h .sup{font-weight:600;color:var(--muted);font-size:13px}
+  .rep-adj{display:inline-block;background:#fdecec;color:#c0392b;border-radius:6px;padding:2px 9px;font-size:12.5px;font-weight:600;margin:2px 0 10px}
+  @media(prefers-color-scheme:dark){.rep-adj{background:#3a1d1d;color:#f2a6a6}}
+  .rep-sec{margin:12px 0 4px;font-weight:700;font-size:13.5px}
+  .rep-txt{white-space:pre-wrap;font-size:13.5px;line-height:1.7;color:var(--text);margin:2px 0}
+  .rep-kv{font-size:13.5px;line-height:1.9}
+  .rep-kv b{color:var(--net)}
+  .rep-memoT{color:var(--net);font-weight:700;font-size:13.5px;margin:12px 0 4px}
+  .rep-memo{white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text)}
+  .rep-missing{color:var(--muted);font-size:13px;padding:6px 0}
+  .loading{padding:60px 0;text-align:center;color:var(--muted)}
+  .spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--net);border-radius:50%;
+    display:inline-block;animation:sp 1s linear infinite;vertical-align:middle;margin-right:10px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="h1">29CM 광고 리포트</h1>
+      <div class="sub" id="subtitle">구글 시트 · 판매액/실판매액 기준 ROAS 보정</div>
+    </div>
+    <div class="toolbar">
+      <div class="seg" id="brandSeg"></div>
+      <div class="seg" id="periodSeg">
+        <button data-p="week" class="on">주간</button>
+        <button data-p="month">월별</button>
+        <button data-p="report">월간보고</button>
+      </div>
+      <button class="primary" id="refreshBtn">↻ 새로고침</button>
+    </div>
+  </header>
+
+  <div id="content">
+    <div class="loading"><span class="spin"></span>데이터를 불러오는 중…</div>
+  </div>
+
+  <div class="foot" id="footnote"></div>
+</div>
+
+<script>
+/* ============================================================
+   ⚙️  설정 — 여기 두 줄만 관리하시면 됩니다
+   ============================================================ */
+// 게시된 스프레드시트 기본 주소 (탭은 gid 로 구분)
+const PUB = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-ywBj4zc7jHC-mtxFQw1BL6sXBb28ao1lAXeym_weEJsavusCp27MFKMnkpGq22JbiI4rqz38eBqE/pub?single=true&output=csv&gid=";
+
+const CONFIG = {
+  // 브랜드별 탭. ad=광고 데이터 gid, sales=실판매액 gid(없으면 "").
+  // 실판매액 탭을 새로 만들면 해당 브랜드 sales 에 gid 만 넣으면 보정 ROAS가 나옵니다.
+  // alias = '월간보고' 탭 브랜드 칸에 어떤 이름으로 적어도 인식되도록 하는 별칭.
+  BRANDS: [
+    { id:"ps",  name:"프로젝트슬립", ad: PUB+"26296784",  sales: PUB+"1703421879", alias:["프로젝트슬립","PS","프슬"] },
+    { id:"pss", name:"평소생활",     ad: PUB+"654701962", sales: "", alias:["평소생활","PSL","평생","PSS"] },
+    { id:"lp",  name:"라포즈",       ad: PUB+"141289368", sales: "", alias:["라포즈","LP","라포스"] },
+  ],
+
+  // '월간보고' 입력 탭 CSV — 시트에 탭을 만든 뒤 그 gid를 PUB+"gid" 형태로 넣으세요. (비우면 안내가 표시됩니다)
+  REPORT_CSV: "",
+
+  CHART_MAX: 12   // 차트에 표시할 최근 기간 개수 (표에는 전체가 나옵니다)
+};
+
+/* ============================================================ */
+const $ = s => document.querySelector(s);
+const won = n => n==null ? "—" : "₩" + Math.round(n).toLocaleString("ko-KR");
+const wonShort = n => {
+  if(n==null) return "—";
+  const a=Math.abs(n);
+  if(a>=1e8) return (n/1e8).toFixed(1).replace(/\.0$/,"")+"억";
+  if(a>=1e4) return Math.round(n/1e4).toLocaleString("ko-KR")+"만";
+  return Math.round(n).toLocaleString("ko-KR");
+};
+const pct = (n,d=0) => n==null ? "—" : n.toFixed(d)+"%";
+const num = s => { const v=parseFloat(String(s??"").replace(/[,₩%\s"']/g,"")); return isNaN(v)?0:v; };
+const pad = n => String(n).padStart(2,"0");
+
+/* ---- CSV 파서 (따옴표·쉼표 처리) ---- */
+function parseCSV(t){
+  const rows=[]; let f="",row=[],q=false;
+  for(let i=0;i<t.length;i++){
+    const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){f+='"';i++;} else q=false; } else f+=c; }
+    else{
+      if(c==='"') q=true;
+      else if(c===",") { row.push(f); f=""; }
+      else if(c==="\n"){ row.push(f); rows.push(row); row=[]; f=""; }
+      else if(c==="\r"){}
+      else f+=c;
+    }
+  }
+  if(f.length||row.length){ row.push(f); rows.push(row); }
+  return rows;
+}
+
+/* ---- 광고 CSV → 일별 집계 ---- */
+function parseAd(text){
+  const rows=parseCSV(text);
+  let h=rows.findIndex(r=>r.some(c=>c.includes("집행 광고비")));
+  if(h<0) throw new Error("광고 시트에서 '집행 광고비' 헤더를 찾지 못했습니다.");
+  const hdr=rows[h].map(c=>c.trim());
+  const find=(names)=>{ for(const n of names){ const i=hdr.findIndex(c=>c===n); if(i>=0) return i;}
+                        for(const n of names){ const i=hdr.findIndex(c=>c.includes(n)); if(i>=0) return i;} return -1; };
+  const ci={ y:find(["년"]), m:find(["월"]), d:find(["일"]),
+             cost:find(["집행 광고비","광고비"]),
+             rev:find(["전환 매출"]), cnt:find(["판매 수"]) };
+  const daily={};
+  for(let i=h+1;i<rows.length;i++){
+    const r=rows[i]; if(!r || r.length<=ci.cost) continue;
+    const y=parseInt(r[ci.y]),m=parseInt(r[ci.m]),d=parseInt(r[ci.d]);
+    if(!y||!m||!d) continue;
+    const k=`${y}-${pad(m)}-${pad(d)}`;
+    (daily[k] ||= {cost:0,adRev:0,cnt:0});
+    daily[k].cost += num(r[ci.cost]);
+    daily[k].adRev += num(r[ci.rev]);
+    daily[k].cnt  += ci.cnt>=0 ? num(r[ci.cnt]) : 0;
+  }
+  return daily;
+}
+
+/* ---- 실판매액 CSV → 일별 ---- */
+function parseSales(text){
+  const rows=parseCSV(text).filter(r=>r.some(c=>String(c).trim()!==""));
+  if(!rows.length) return {};
+  // 헤더 행 탐색
+  let h=rows.findIndex(r=>r.some(c=>c.includes("판매액")) || r.some(c=>c.includes("날짜")));
+  if(h<0) h=0;
+  const hdr=rows[h].map(c=>c.trim());
+  const idxDate = hdr.findIndex(c=>c.includes("날짜"));
+  const idxY = hdr.findIndex(c=>c==="년"), idxM=hdr.findIndex(c=>c==="월"), idxD=hdr.findIndex(c=>c==="일");
+  const idxNet = hdr.findIndex(c=>c.includes("실판매") || (c.includes("실") && c.includes("판매")));
+  const idxGross = hdr.findIndex((c,j)=> j!==idxNet && c.includes("판매액"));
+  const daily={};
+  const toKey=(r)=>{
+    if(idxDate>=0){
+      const s=String(r[idxDate]).trim().replace(/[./]/g,"-");
+      const mParts=s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if(mParts) return `${mParts[1]}-${pad(+mParts[2])}-${pad(+mParts[3])}`;
+      return null;
+    }
+    if(idxY>=0&&idxM>=0&&idxD>=0){
+      const y=parseInt(r[idxY]),m=parseInt(r[idxM]),d=parseInt(r[idxD]);
+      if(!y||!m||!d) return null; return `${y}-${pad(m)}-${pad(d)}`;
+    }
+    return null;
+  };
+  for(let i=h+1;i<rows.length;i++){
+    const r=rows[i]; const k=toKey(r); if(!k) continue;
+    const g = idxGross>=0 ? r[idxGross] : "";
+    const nt= idxNet>=0 ? r[idxNet] : "";
+    const gross = String(g).trim()==="" ? null : num(g);
+    const net   = String(nt).trim()==="" ? null : num(nt);
+    if(gross==null && net==null) continue;
+    daily[k]={gross, net};
+  }
+  return daily;
+}
+
+/* ---- 일별 병합 ---- */
+function mergeDaily(ad, sales){
+  const keys=new Set([...Object.keys(ad),...Object.keys(sales)]);
+  const out=[];
+  for(const k of keys){
+    const a=ad[k]||{}, s=sales[k]||{};
+    out.push({
+      date:new Date(k+"T00:00:00"), key:k,
+      cost:a.cost||0, adRev:a.adRev||0, cnt:a.cnt||0,
+      gross: s.gross==null?null:s.gross, net: s.net==null?null:s.net,
+      hasAd: !!ad[k], hasSales: !!sales[k]
+    });
+  }
+  out.sort((x,y)=>x.date-y.date);
+  return out;
+}
+
+/* ---- 주/월 그룹 키 ---- */
+function weekStart(d){ const t=new Date(d); const wd=(t.getDay()+6)%7; t.setDate(t.getDate()-wd); t.setHours(0,0,0,0); return t; }
+function groupBy(daily, mode){
+  const groups={};
+  for(const r of daily){
+    let key,label,sortkey;
+    if(mode==="month"){
+      key=`${r.date.getFullYear()}-${pad(r.date.getMonth()+1)}`;
+      label=`${r.date.getFullYear()}년 ${r.date.getMonth()+1}월`;
+      sortkey=key;
+    }else{
+      const ws=weekStart(r.date); const we=new Date(ws); we.setDate(we.getDate()+6);
+      key=`${ws.getFullYear()}-${pad(ws.getMonth()+1)}-${pad(ws.getDate())}`;
+      label=`${pad(ws.getMonth()+1)}/${pad(ws.getDate())}~${pad(we.getMonth()+1)}/${pad(we.getDate())}`;
+      sortkey=key;
+    }
+    (groups[key] ||= {key,label,sortkey,cost:0,adRev:0,cnt:0,gross:0,net:0,
+                      daysAd:0,daysSales:0,anyGross:false,anyNet:false});
+    const g=groups[key];
+    g.cost+=r.cost; g.adRev+=r.adRev; g.cnt+=r.cnt;
+    if(r.hasAd && r.cost>0) g.daysAd++;
+    if(r.gross!=null){ g.gross+=r.gross; g.anyGross=true; }
+    if(r.net!=null){ g.net+=r.net; g.anyNet=true; }
+    if(r.gross!=null||r.net!=null) g.daysSales++;
+  }
+  const arr=Object.values(groups).sort((a,b)=>a.sortkey<b.sortkey?-1:1);
+  for(const g of arr){
+    g.grossV = g.anyGross? g.gross : null;
+    g.netV   = g.anyNet? g.net : null;
+    g.roasAd = g.cost>0 ? g.adRev/g.cost*100 : null;
+    g.roasNom= (g.cost>0 && g.grossV!=null) ? g.grossV/g.cost*100 : null;
+    g.roasAdj= (g.cost>0 && g.netV!=null) ? g.netV/g.cost*100 : null;
+    g.keepRate=(g.grossV && g.netV!=null) ? g.netV/g.grossV*100 : null;
+    g.partial = (g.daysSales>0 && g.daysAd>0 && g.daysSales<g.daysAd);
+  }
+  return arr;
+}
+
+/* ---- SVG 그룹 막대 차트 ---- */
+function barChart(el, labels, series, {fmt=wonShort, unit=""}={}){
+  if(!labels.length){ el.innerHTML='<div class="muted" style="padding:30px 0;text-align:center">표시할 데이터가 없습니다</div>'; return; }
+  const W=Math.max(labels.length*Math.max(46, series.length*22+26)+70, 320), H=240;
+  const P={t:14,r:12,b:46,l:56};
+  const iw=W-P.l-P.r, ih=H-P.t-P.b;
+  let max=0; series.forEach(s=>s.values.forEach(v=>{ if(v!=null&&v>max)max=v; }));
+  if(max<=0) max=1;
+  const nice=(m)=>{ const p=Math.pow(10,Math.floor(Math.log10(m))); const f=m/p;
+    const s=f<=1?1:f<=2?2:f<=5?5:10; return s*p; };
+  const top=nice(max); const ticks=4;
+  const x=i=> P.l + i*(iw/labels.length);
+  const bw=iw/labels.length;
+  const gap=6, groupW=bw-gap*2, each=groupW/series.length;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" preserveAspectRatio="xMinYMin meet" role="img">`;
+  for(let t=0;t<=ticks;t++){
+    const val=top*t/ticks, yy=P.t+ih-(val/top)*ih;
+    svg+=`<line x1="${P.l}" y1="${yy}" x2="${W-P.r}" y2="${yy}" stroke="var(--grid)"/>`;
+    svg+=`<text x="${P.l-8}" y="${yy+3.5}" font-size="10" text-anchor="end">${fmt(val)}</text>`;
+  }
+  labels.forEach((lab,i)=>{
+    series.forEach((s,si)=>{
+      const v=s.values[i]; if(v==null) return;
+      const bh=(v/top)*ih; const bx=x(i)+gap+si*each; const by=P.t+ih-bh;
+      svg+=`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${Math.max(each-2,1).toFixed(1)}" height="${Math.max(bh,0).toFixed(1)}" rx="2" fill="${s.color}">`
+         +`<title>${lab} · ${s.name}: ${unit==="%"?(v.toFixed(0)+"%"):won(v)}</title></rect>`;
+    });
+    const cx=x(i)+bw/2;
+    const short = lab.length>7 ? lab : lab;
+    svg+=`<text x="${cx}" y="${H-P.b+16}" font-size="10" text-anchor="middle" transform="rotate(18 ${cx} ${H-P.b+16})">${lab}</text>`;
+  });
+  svg+=`</svg>`;
+  el.innerHTML=svg;
+}
+
+/* ---- 렌더 ---- */
+let STATE={daily:[],hasSalesUrl:false,mode:"week",loadedAt:null,brandId:CONFIG.BRANDS[0].id,cache:{}};
+function currentBrand(){ return CONFIG.BRANDS.find(b=>b.id===STATE.brandId)||CONFIG.BRANDS[0]; }
+
+function render(){
+  const c=$("#content");
+  const groups=groupBy(STATE.daily, STATE.mode);
+  const recent=groups.slice(-CONFIG.CHART_MAX);
+  const view=[...groups].reverse(); // 표: 최신 위로
+
+  // KPI (실판매액이 입력된 날 기준)
+  let kCost=0,kGross=0,kNet=0,anyG=false,anyN=false, totalCostAll=0;
+  for(const r of STATE.daily){
+    totalCostAll+=r.cost;
+    if(r.gross!=null||r.net!=null){ kCost+=r.cost; if(r.gross!=null){kGross+=r.gross;anyG=true;} if(r.net!=null){kNet+=r.net;anyN=true;} }
+  }
+  const kNom = (kCost>0&&anyG)? kGross/kCost*100 : null;
+  const kAdj = (kCost>0&&anyN)? kNet/kCost*100 : null;
+  const kKeep= (anyG&&kGross>0&&anyN)? kNet/kGross*100 : null;
+
+  let html="";
+
+  if(!STATE.hasSalesUrl){
+    const bn=currentBrand().name;
+    html+=`<div class="banner">
+      <b>⚙️ '${bn}' 실판매액 탭이 아직 연결되지 않았습니다.</b> 지금은 광고비·광고전환매출만 표시됩니다.
+      판매액·실판매액 기준 ROAS 보정을 보려면:
+      <ol>
+        <li>같은 구글 스프레드시트에 <code>${bn} 실판매액</code> 탭을 만들고 1행에 <code>날짜</code>, <code>판매액</code>, <code>실판매액</code> 헤더 입력 (예: <code>2026-07-01 / 1540280 / 1421000</code>)</li>
+        <li>전체 문서가 웹에 게시돼 있으니 별도 게시 없이, 그 탭의 <b>gid 번호</b>만 확인 (시트 열었을 때 주소 <code>#gid=숫자</code>)</li>
+        <li>이 HTML 파일을 메모장으로 열어 <code>CONFIG.BRANDS</code> 의 '${bn}' 줄 <code>sales: ""</code> 안에 <code>PUB+"그gid"</code> 를 넣고 저장</li>
+      </ol>
+    </div>`;
+  }
+
+  // KPI 카드
+  const cards=[
+    {lab:`총 광고비 <span class="muted" style="font-size:11px">(전체 기간)</span>`, val:won(totalCostAll)},
+    {lab:`<span class="dot" style="background:var(--gross)"></span>총 판매액`, val:anyG?won(kGross):"—"},
+    {lab:`<span class="dot" style="background:var(--net)"></span>총 실판매액`, val:anyN?won(kNet):"—"},
+    {lab:`<span class="dot" style="background:var(--roas-nom)"></span>명목 ROAS`, val:kNom==null?"—":pct(kNom)},
+    {lab:`<span class="dot" style="background:var(--roas-adj)"></span>보정 ROAS`, val:kAdj==null?"—":pct(kAdj)},
+    {lab:`보정률 <span class="muted" style="font-size:11px">(실/판매액)</span>`, val:kKeep==null?"—":pct(kKeep,1)},
+  ];
+  html+=`<div class="cards">`+cards.map(c=>`<div class="card"><div class="lab">${c.lab}</div><div class="val">${c.val}</div></div>`).join("")+`</div>`;
+
+  // 차트
+  const labels=recent.map(g=>g.label);
+  html+=`<div class="panel">
+    <h2>추이 <span class="muted" style="font-size:12px">· 최근 ${recent.length}개 ${STATE.mode==="week"?"주":"개월"}</span></h2>
+    <div class="charts">
+      <div>
+        <div class="legend">
+          <span><span class="dot" style="background:var(--gross)"></span>판매액</span>
+          <span><span class="dot" style="background:var(--net)"></span>실판매액</span>
+          <span><span class="dot" style="background:var(--cost)"></span>광고비</span>
+        </div>
+        <div class="chartbox" id="chartRev"></div>
+      </div>
+      <div>
+        <div class="legend">
+          <span><span class="dot" style="background:var(--roas-nom)"></span>명목 ROAS</span>
+          <span><span class="dot" style="background:var(--roas-adj)"></span>보정 ROAS</span>
+          <span><span class="dot" style="background:var(--roas-ad)"></span>광고 ROAS</span>
+        </div>
+        <div class="chartbox" id="chartRoas"></div>
+      </div>
+    </div>
+  </div>`;
+
+  // 표
+  html+=`<div class="panel">
+    <h2>${STATE.mode==="week"?"주간":"월별"} 상세</h2>
+    <p class="hint">명목 ROAS = 판매액÷광고비 · 보정 ROAS = 실판매액÷광고비 · 광고 ROAS = 광고전환매출÷광고비(광고플랫폼 기준)</p>
+    <div class="tblwrap"><table>
+      <thead><tr>
+        <th>기간</th><th>광고비</th><th>판매액</th><th>실판매액</th><th>보정률</th>
+        <th>명목 ROAS</th><th>보정 ROAS</th><th>광고전환매출</th><th>광고 ROAS</th>
+      </tr></thead><tbody>`;
+  for(const g of view){
+    const lbl = g.partial ? `<span class="partial" title="이 기간에 광고는 있으나 일부 날짜만 판매액이 입력됨">${g.label} *</span>` : g.label;
+    html+=`<tr>
+      <td>${lbl}</td>
+      <td class="num">${won(g.cost)}</td>
+      <td class="num">${won(g.grossV)}</td>
+      <td class="num">${won(g.netV)}</td>
+      <td class="num">${g.keepRate==null?'<span class="muted">—</span>':pct(g.keepRate,1)}</td>
+      <td class="num">${g.roasNom==null?'<span class="muted">—</span>':pct(g.roasNom)}</td>
+      <td class="num">${g.roasAdj==null?'<span class="muted">—</span>':`<span class="${g.roasAdj>=100?'pos':'neg'}">${pct(g.roasAdj)}</span>`}</td>
+      <td class="num muted">${won(g.adRev)}</td>
+      <td class="num muted">${g.roasAd==null?'—':pct(g.roasAd)}</td>
+    </tr>`;
+  }
+  // 합계
+  const sum=view.reduce((a,g)=>{a.cost+=g.cost;a.adRev+=g.adRev; if(g.grossV!=null){a.gross+=g.grossV;a.g=true;} if(g.netV!=null){a.net+=g.netV;a.n=true;} return a;},{cost:0,adRev:0,gross:0,net:0,g:false,n:false});
+  const sNom=sum.g&&sum.cost?sum.gross/sum.cost*100:null, sAdj=sum.n&&sum.cost?sum.net/sum.cost*100:null;
+  const sKeep=sum.g&&sum.gross&&sum.n?sum.net/sum.gross*100:null;
+  html+=`</tbody><tfoot><tr>
+      <td>합계</td><td class="num">${won(sum.cost)}</td>
+      <td class="num">${sum.g?won(sum.gross):"—"}</td>
+      <td class="num">${sum.n?won(sum.net):"—"}</td>
+      <td class="num">${sKeep==null?"—":pct(sKeep,1)}</td>
+      <td class="num">${sNom==null?"—":pct(sNom)}</td>
+      <td class="num">${sAdj==null?"—":pct(sAdj)}</td>
+      <td class="num">${won(sum.adRev)}</td>
+      <td class="num">${sum.cost?pct(sum.adRev/sum.cost*100):"—"}</td>
+    </tr></tfoot></table></div>
+  </div>`;
+
+  c.innerHTML=html;
+
+  // 차트 그리기
+  barChart($("#chartRev"), labels, [
+    {name:"판매액", color:"var(--gross)", values:recent.map(g=>g.grossV)},
+    {name:"실판매액", color:"var(--net)", values:recent.map(g=>g.netV)},
+    {name:"광고비", color:"var(--cost)", values:recent.map(g=>g.cost)},
+  ], {fmt:wonShort});
+  barChart($("#chartRoas"), labels, [
+    {name:"명목 ROAS", color:"var(--roas-nom)", values:recent.map(g=>g.roasNom)},
+    {name:"보정 ROAS", color:"var(--roas-adj)", values:recent.map(g=>g.roasAdj)},
+    {name:"광고 ROAS", color:"var(--roas-ad)", values:recent.map(g=>g.roasAd)},
+  ], {fmt:v=>Math.round(v)+"%", unit:"%"});
+}
+
+/* ============================================================
+   월간 보고서 (지난 보고 형식)
+   ============================================================ */
+const escapeHtml = s => String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const numOrNull = s => { s=String(s??"").trim(); return s===""?null:num(s); };
+const wonR   = n => n==null ? "—" : Math.round(n).toLocaleString("ko-KR")+"원";
+const roasFmt= n => n==null ? "—" : Math.round(n).toLocaleString("ko-KR")+"%";
+let REPORT=null; // {byKey, months}
+
+function parseReport(text){
+  const rows=parseCSV(text).filter(r=>r.some(c=>String(c).trim()!==""));
+  if(!rows.length) return {byKey:{},months:[]};
+  let h=rows.findIndex(r=>r.some(c=>c.includes("브랜드"))||r.some(c=>c.includes("년월")));
+  if(h<0) h=0;
+  const hdr=rows[h].map(c=>c.trim());
+  const col=(...names)=>{ for(const n of names){const i=hdr.findIndex(c=>c===n); if(i>=0)return i;}
+                          for(const n of names){const i=hdr.findIndex(c=>c.includes(n)); if(i>=0)return i;} return -1; };
+  const ci={ ym:col("년월","월"), brand:col("브랜드"), gross:col("어드민판매액","판매액"),
+             net:col("실판매액","실 판매액"), support:col("지원금"),
+             cost:col("광고비","집행광고비","집행 광고비"),
+             adRev:col("광고전환매출","광고 전환 매출","전환매출"),
+             camp:col("캠페인상세","캠페인"), memo:col("메모","비고") };
+  const brandOf=(s)=>{ s=String(s||"").trim().toLowerCase();
+    const b=CONFIG.BRANDS.find(b=>b.alias.some(a=>a.toLowerCase()===s)||b.name.toLowerCase()===s); return b?b.id:null; };
+  const ymNorm=(s)=>{ const m=String(s||"").match(/(\d{2,4})\s*[-.\/년]?\s*(\d{1,2})/); if(!m)return null;
+    let y=+m[1]; if(y<100)y+=2000; return `${y}-${pad(+m[2])}`; };
+  const byKey={}, monthsSet=new Set();
+  for(let i=h+1;i<rows.length;i++){
+    const r=rows[i];
+    const ym=ci.ym>=0?ymNorm(r[ci.ym]):null;
+    const bid=ci.brand>=0?brandOf(r[ci.brand]):null;
+    if(!ym||!bid) continue;
+    byKey[`${ym}|${bid}`]={ ym,bid,
+      gross:ci.gross>=0?numOrNull(r[ci.gross]):null,
+      net:ci.net>=0?numOrNull(r[ci.net]):null,
+      support:ci.support>=0?numOrNull(r[ci.support]):null,
+      cost:ci.cost>=0?numOrNull(r[ci.cost]):null,
+      adRev:ci.adRev>=0?numOrNull(r[ci.adRev]):null,
+      camp:ci.camp>=0?String(r[ci.camp]||"").trim():"",
+      memo:ci.memo>=0?String(r[ci.memo]||"").trim():"" };
+    monthsSet.add(ym);
+  }
+  return { byKey, months:[...monthsSet].sort().reverse() };
+}
+
+function computeAdMonth(brandId, ym){
+  const c=STATE.cache[brandId]; if(!c||!c.daily) return {cost:0,adRev:0,has:false};
+  let cost=0,adRev=0,has=false;
+  for(const r of c.daily){ if(r.key.slice(0,7)===ym){ cost+=r.cost; adRev+=r.adRev; has=true; } }
+  return {cost,adRev,has};
+}
+
+async function ensureAllBrandAd(){
+  for(const b of CONFIG.BRANDS){
+    if(STATE.cache[b.id]) continue;
+    try{
+      const ad=parseAd(await fetchCSV(b.ad));
+      let sales={}; if(b.sales&&b.sales.trim()){ try{ sales=parseSales(await fetchCSV(b.sales)); }catch(e){} }
+      STATE.cache[b.id]={daily:mergeDaily(ad,sales),hasSalesUrl:!!(b.sales&&b.sales.trim()),loadedAt:new Date(),salesFailed:false};
+    }catch(e){ STATE.cache[b.id]={daily:[],hasSalesUrl:false,loadedAt:new Date(),error:true}; }
+  }
+}
+
+function reportSetupHelp(emptyRows){
+  return `<div class="banner">
+    <b>⚙️ '월간보고' 탭이 아직 연결되지 않았습니다.</b> 지난 보고서 형식의 월간 리포트를 자동 생성하려면:
+    <ol>
+      <li>구글 시트에 <code>월간보고</code> 탭을 만들고 1행에 헤더 입력:
+        <br><code>년월 · 브랜드 · 어드민판매액 · 실판매액 · 지원금 · 광고비 · 광고전환매출 · 캠페인상세 · 메모</code></li>
+      <li>브랜드별로 한 줄씩 입력 (예): <code>2026-06</code> / <code>프로젝트슬립</code> / <code>46540200</code> / <code>33567798</code> / <code>100000</code> / <code>2794990</code> / <code>19334600</code> / (캠페인 1-1·1-2 텍스트) / (메모)
+        <br><span class="muted">· 브랜드 칸: 프로젝트슬립 / 평소생활 / 라포즈 (또는 PS / PSL / LP)
+        · 광고비·광고전환매출을 비우면 상품리포트 자동집계값 사용 (보고 수치와 정확히 맞추려면 직접 입력)
+        · 캠페인상세·메모의 줄바꿈은 셀 안에서 Alt+Enter</span></li>
+      <li>그 탭을 열었을 때 주소의 <code>#gid=숫자</code> 확인 (전체 문서가 게시돼 있어 별도 게시 불필요)</li>
+      <li>이 HTML을 메모장으로 열어 <code>REPORT_CSV: ""</code> 안에 <code>PUB+"그gid"</code> 를 넣고 저장 → <b>↻ 새로고침</b></li>
+    </ol>
+    ${emptyRows?`<b>⚠️ 탭은 연결됐지만 인식된 행이 없습니다.</b> 브랜드·년월 칸을 확인하세요.`:""}
+  </div>`;
+}
+
+// 한 브랜드 계산 결과
+function brandReport(bid, ym){
+  const rec=REPORT&&REPORT.byKey[`${ym}|${bid}`];
+  const adm=computeAdMonth(bid, ym);
+  const cost=(rec&&rec.cost!=null)?rec.cost:adm.cost;
+  const gross=rec?rec.gross:null, net=rec?rec.net:null, support=rec?rec.support:null;
+  const adRev=(rec&&rec.adRev!=null)?rec.adRev:(adm.has?adm.adRev:null);
+  const R=(net!=null&&gross)?net/gross:null;            // 실결제 반영율
+  const nom=(adRev!=null&&cost>0)?adRev/cost*100:null;   // 명목 ROAS
+  const adjRev=(adRev!=null&&R!=null)?adRev*R:null;      // 보정 광고전환매출
+  const adj=(adjRev!=null&&cost>0)?adjRev/cost*100:null; // 보정 ROAS
+  return {rec,cost,gross,net,support,adRev,R,nom,adjRev,adj,
+    shareNet:(net&&cost)?cost/net*100:null,
+    shareAdj:(adjRev&&cost)?cost/adjRev*100:null,
+    adjOverNet:(adjRev!=null&&net)?adjRev/net*100:null };
+}
+
+function reportBlockHTML(idx, brand, ym){
+  const d=brandReport(brand.id, ym);
+  if(!d.rec){
+    return `<div class="rep-brand"><div class="rep-h">${idx}] ${brand.name}</div>
+      <div class="rep-missing">· '월간보고' 탭에 ${ym} ${brand.name} 행이 없습니다. (집행 광고비 자동집계: ${wonR(d.cost)})</div></div>`;
+  }
+  const head=`(어드민 기준 판매액 ${wonR(d.gross)} | 실 판매액 ${wonR(d.net)} | 광고비 ${wonR(d.cost)}${d.support!=null?` / 지원금 ${wonR(d.support)} 포함`:""})`;
+  return `<div class="rep-brand">
+    <div class="rep-h">${idx}] ${brand.name} <span class="sup">${head}</span></div>
+    ${d.R!=null?`<div class="rep-adj">*보정값) 광고 전환 매출액 보정 실결제 반영율 ${(d.R*100).toFixed(1)}% 적용*</div>`:""}
+    ${d.rec.camp?`<div class="rep-txt">${escapeHtml(d.rec.camp)}</div>`:""}
+    <div class="rep-sec">브랜드 합계 <span class="muted" style="font-weight:400">(광고비 ${d.rec.cost!=null?"입력값":"자동"} · 광고전환매출 ${d.rec.adRev!=null?"입력값":"자동"})</span></div>
+    <div class="rep-kv">집행 광고비 <b>${wonR(d.cost)}</b> · 광고 전환 매출액 <b>${wonR(d.adRev)}</b> · 명목 ROAS <b>${roasFmt(d.nom)}</b>
+      ${d.adj!=null?`<br><span class="rep-adj" style="margin:6px 0 0">보정) ROAS ${roasFmt(d.adj)} · 광고 전환 매출액 ${wonR(d.adjRev)}</span>`:""}</div>
+    <div class="rep-sec">광고 비중</div>
+    <div class="rep-kv">전체 실판매액 대비 <b>${d.shareNet==null?"—":d.shareNet.toFixed(2)+"%"}</b><br>
+      보정 광고 전환 매출 대비 <b>${d.shareAdj==null?"—":d.shareAdj.toFixed(2)+"%"}</b><br>
+      보정 광고 전환 매출 = 실 판매액의 약 <b>${d.adjOverNet==null?"—":d.adjOverNet.toFixed(2)+"%"}</b></div>
+    ${d.rec.memo?`<div class="rep-memoT">● ${brand.name} 광고 데이터</div><div class="rep-memo">${escapeHtml(d.rec.memo)}</div>`:""}
+  </div>`;
+}
+
+function reportText(ym){
+  const lines=[`[29CM 광고 데이터 ${ym} 보고]`,""];
+  CONFIG.BRANDS.forEach((brand,i)=>{
+    const d=brandReport(brand.id, ym); const idx=i+1;
+    if(!d.rec){ lines.push(`${idx}] ${brand.name} — 입력 없음 (집행 광고비 ${wonR(d.cost)})`,""); return; }
+    lines.push(`${idx}] ${brand.name} (어드민 기준 판매액 ${wonR(d.gross)} | 실 판매액 ${wonR(d.net)} | 광고비 ${wonR(d.cost)}${d.support!=null?` / 지원금 ${wonR(d.support)} 포함`:""})`);
+    if(d.R!=null) lines.push(`*보정값) 광고 전환 매출액 보정 실결제 반영율 ${(d.R*100).toFixed(1)}% 적용*`);
+    if(d.rec.camp) lines.push(d.rec.camp);
+    lines.push(`집행 광고비 ${wonR(d.cost)} · 광고 전환 매출액 ${wonR(d.adRev)} · 명목 ROAS ${roasFmt(d.nom)}`);
+    if(d.adj!=null) lines.push(`보정) ROAS ${roasFmt(d.adj)} · 광고 전환 매출액 ${wonR(d.adjRev)}`);
+    lines.push(`광고 비중`,
+      `전체 실판매액 대비 ${d.shareNet==null?"—":d.shareNet.toFixed(2)+"%"}`,
+      `보정 광고 전환 매출 대비 ${d.shareAdj==null?"—":d.shareAdj.toFixed(2)+"%"}`,
+      `보정 광고 전환 매출 = 실 판매액의 약 ${d.adjOverNet==null?"—":d.adjOverNet.toFixed(2)+"%"}`);
+    if(d.rec.memo) lines.push(`● ${brand.name} 광고 데이터`, d.rec.memo);
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function renderReportDoc(months){
+  const ym=STATE.reportYm;
+  const blocks=CONFIG.BRANDS.map((b,i)=>reportBlockHTML(i+1,b,ym)).join("");
+  $("#content").innerHTML=
+    `<div class="repbar">
+       <label>기준 월</label>
+       <select id="repMonth">${months.map(m=>`<option value="${m}"${m===ym?" selected":""}>${m}</option>`).join("")}</select>
+       <button id="repCopy">📋 텍스트 복사</button>
+       <span class="muted" style="font-size:12px">시트 '월간보고' 입력 + 광고비 자동집계 기반</span>
+     </div>
+     <div class="repdoc"><div style="font-weight:700;margin-bottom:6px">29CM 광고 데이터 ${ym} 공유드립니다.</div>${blocks}</div>`;
+  $("#repMonth").addEventListener("change",e=>{ STATE.reportYm=e.target.value; renderReportDoc(months); });
+  $("#repCopy").addEventListener("click",async()=>{
+    try{ await navigator.clipboard.writeText(reportText(ym)); $("#repCopy").textContent="✓ 복사됨"; setTimeout(()=>$("#repCopy").textContent="📋 텍스트 복사",1500); }
+    catch(e){ alert("복사 실패 — 브라우저 권한을 확인하세요."); }
+  });
+  $("#footnote").innerHTML=`[월간보고] 기준 월 ${ym} · 브랜드별 광고비는 상품리포트 자동집계, 판매액·실판매액·지원금·캠페인·메모는 '월간보고' 탭 입력값입니다.`;
+}
+
+async function showReport(force){
+  $("#brandSeg").style.display="none";
+  $("#content").innerHTML=`<div class="loading"><span class="spin"></span>월간 보고서를 준비하는 중…</div>`;
+  if(!CONFIG.REPORT_CSV.trim()){ $("#content").innerHTML=reportSetupHelp(false); $("#footnote").innerHTML=""; return; }
+  await ensureAllBrandAd();
+  if(force||!REPORT){
+    try{ REPORT=parseReport(await fetchCSV(CONFIG.REPORT_CSV)); }
+    catch(e){ $("#content").innerHTML=`<div class="err"><b>'월간보고' 탭을 불러오지 못했습니다.</b><br>${e.message}<br>REPORT_CSV 링크와 게시 상태를 확인하세요.</div>`; return; }
+  }
+  const months=REPORT.months;
+  if(!months.length){ $("#content").innerHTML=reportSetupHelp(true); $("#footnote").innerHTML=""; return; }
+  if(!STATE.reportYm||!months.includes(STATE.reportYm)) STATE.reportYm=months[0];
+  renderReportDoc(months);
+}
+
+/* ---- 로드 ---- */
+async function fetchCSV(url){
+  let res;
+  try{ res=await fetch(url,{cache:"no-store"}); }
+  catch(e){
+    // 네트워크 실패 또는 로그인 페이지로의 교차출처 리다이렉트(=미게시)
+    const err=new Error("접근 실패 (미게시 또는 네트워크)"); err.kind="blocked"; throw err;
+  }
+  if(!res.ok){ const err=new Error("HTTP "+res.status); err.kind=(res.status===401||res.status===403)?"blocked":"http"; throw err; }
+  return await res.text();
+}
+function publishHelp(who){
+  return `<div class="err"><b>⚠️ ${who} 데이터를 불러오지 못했습니다.</b>
+    <br>해당 탭의 <b>‘웹에 게시’가 해제</b>됐거나 링크가 잘못됐을 가능성이 큽니다
+    (게시가 켜져 있으면 로그인 없이 CSV가 열려야 합니다).
+    <br><br><b>해결 방법 — 구글 시트에서:</b>
+    <ol style="margin:8px 0 0;padding-left:20px">
+      <li><b>파일 → 공유 → 웹에 게시</b> 열기</li>
+      <li>‘게시된 콘텐츠 및 설정’에서 게시 범위를 <b>전체 문서</b>로 바꾸기
+        <br><span class="muted">(특정 시트만 게시하면 나머지 탭은 로그인 요구 → 이 오류가 납니다. 광고 탭·실판매액 탭이 모두 열려야 합니다.)</span></li>
+      <li><b>게시</b> 클릭 후 저장</li>
+      <li>이 페이지에서 <b>↻ 새로고침</b></li>
+    </ol></div>`;
+}
+function updateTitle(){
+  const t=`29CM ${currentBrand().name} 광고 리포트`;
+  document.title=t; $("#h1").textContent=t;
+}
+function setFoot(){
+  const dr=STATE.daily.length? `${STATE.daily[0].key} ~ ${STATE.daily[STATE.daily.length-1].key}` : "-";
+  $("#footnote").innerHTML=
+    `[${currentBrand().name}] 데이터 기간: ${dr} · 불러온 시각: ${STATE.loadedAt.toLocaleString("ko-KR")}<br>`+
+    `상단에서 브랜드를 전환할 수 있습니다. 시트를 업데이트한 뒤 <b>↻ 새로고침</b> 을 누르면 최신 데이터가 반영됩니다. `+
+    `광고 데이터(광고비·광고전환매출)는 자동, 판매액·실판매액은 해당 브랜드 '실판매액' 탭 입력값을 사용합니다.`;
+}
+async function load(force){
+  const brand=currentBrand();
+  updateTitle();
+  // 캐시 사용(브랜드 전환 시 재요청 없이 즉시 표시). 새로고침은 강제 재요청.
+  if(!force && STATE.cache[brand.id]){
+    const c=STATE.cache[brand.id];
+    STATE.daily=c.daily; STATE.hasSalesUrl=c.hasSalesUrl; STATE.loadedAt=c.loadedAt;
+    render(); if(c.salesFailed) salesFailBanner(); setFoot(); return;
+  }
+  $("#content").innerHTML=`<div class="loading"><span class="spin"></span>${brand.name} 데이터를 불러오는 중…</div>`;
+  // 광고 데이터
+  let ad;
+  try{ ad=parseAd(await fetchCSV(brand.ad)); }
+  catch(e){
+    $("#content").innerHTML = e.kind==="blocked"
+      ? publishHelp(brand.name+" 광고")
+      : `<div class="err"><b>${brand.name} 광고 데이터를 불러오지 못했습니다.</b><br>${e.message}
+         <br><br>· 인터넷 연결 확인<br>· 크롬/엣지에서 열었는지 확인</div>`;
+    $("#footnote").innerHTML="";
+    return;
+  }
+  // 실판매액 데이터(선택)
+  let sales={}, salesFailed=false;
+  STATE.hasSalesUrl=!!(brand.sales && brand.sales.trim());
+  if(STATE.hasSalesUrl){
+    try{ sales=parseSales(await fetchCSV(brand.sales)); }
+    catch(e){ salesFailed=true; console.warn("sales load fail",e); }
+  }
+  STATE.daily=mergeDaily(ad,sales);
+  STATE.loadedAt=new Date();
+  STATE.cache[brand.id]={daily:STATE.daily,hasSalesUrl:STATE.hasSalesUrl,loadedAt:STATE.loadedAt,salesFailed};
+  render();
+  if(salesFailed) salesFailBanner();
+  setFoot();
+}
+function salesFailBanner(){
+  $("#content").insertAdjacentHTML("afterbegin",
+    `<div class="banner"><b>⚠️ 실판매액 탭을 불러오지 못했습니다.</b> 광고 데이터만 표시 중입니다. `+
+    `해당 브랜드 '실판매액' 탭의 게시 상태 또는 gid를 확인하세요.</div>`);
+}
+
+// 브랜드 선택 버튼 생성
+$("#brandSeg").innerHTML = CONFIG.BRANDS.map((b,i)=>
+  `<button data-b="${b.id}"${i===0?' class="on"':''}>${b.name}</button>`).join("");
+$("#brandSeg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  STATE.brandId=b.dataset.b;
+  [...$("#brandSeg").children].forEach(x=>x.classList.toggle("on",x===b));
+  load(false);
+});
+
+$("#refreshBtn").addEventListener("click",()=>{
+  if(STATE.mode==="report"){ STATE.cache={}; REPORT=null; showReport(true); }
+  else load(true);
+});
+$("#periodSeg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  STATE.mode=b.dataset.p;
+  [...$("#periodSeg").children].forEach(x=>x.classList.toggle("on",x===b));
+  if(STATE.mode==="report"){ showReport(false); }
+  else {
+    $("#brandSeg").style.display="";
+    updateTitle();
+    if(STATE.daily.length) render(); else load(false);
+  }
+});
+load(false);
+</script>
+</body>
+</html>
