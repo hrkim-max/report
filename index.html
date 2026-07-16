@@ -297,10 +297,13 @@ function groupBy(daily, mode){
   for(const g of arr){
     g.grossV = g.anyGross? g.gross : null;
     g.netV   = g.anyNet? g.net : null;
-    g.roasAd = g.cost>0 ? g.adRev/g.cost*100 : null;
-    g.roasNom= (g.cost>0 && g.grossV!=null) ? g.grossV/g.cost*100 : null;
-    g.roasAdj= (g.cost>0 && g.netV!=null) ? g.netV/g.cost*100 : null;
-    g.keepRate=(g.grossV && g.netV!=null) ? g.netV/g.grossV*100 : null;
+    // 명목 ROAS = 광고전환매출 ÷ 광고비  (판매액이 아니라 광고전환매출 기반!)
+    g.roasNom = g.cost>0 ? g.adRev/g.cost*100 : null;
+    // 반영율 = 실판매액 ÷ 판매액  (광고전환매출이 판매가 기준으로 높게 잡혀서 이 비율로 보정)
+    g.keepRate = (g.grossV && g.netV!=null) ? g.netV/g.grossV*100 : null;
+    // 보정 광고전환매출 = 광고전환매출 × 반영율,  보정 ROAS = 명목 ROAS × 반영율
+    g.adjRev  = (g.grossV && g.netV!=null) ? g.adRev*(g.netV/g.grossV) : null;
+    g.roasAdj = (g.cost>0 && g.adjRev!=null) ? g.adjRev/g.cost*100 : null;
     g.partial = (g.daysSales>0 && g.daysAd>0 && g.daysSales<g.daysAd);
   }
   return arr;
@@ -387,16 +390,16 @@ function render(){
   const recent=groups.slice(-CONFIG.CHART_MAX);
   const view=[...groups].reverse(); // 표: 최신 위로
 
-  // KPI (실판매액이 입력된 날 기준)
-  let kCost=0,kGross=0,kNet=0,anyG=false,anyN=false, totalCostAll=0;
+  // KPI
+  let totalCostAll=0, totalAdRevAll=0, kGross=0,kNet=0,anyG=false,anyN=false, kCostSales=0;
   for(const r of daily){
-    totalCostAll+=r.cost;
-    if(r.gross!=null||r.net!=null){ kCost+=r.cost; if(r.gross!=null){kGross+=r.gross;anyG=true;} if(r.net!=null){kNet+=r.net;anyN=true;} }
+    totalCostAll+=r.cost; totalAdRevAll+=r.adRev;
+    if(r.gross!=null||r.net!=null){ kCostSales+=r.cost; if(r.gross!=null){kGross+=r.gross;anyG=true;} if(r.net!=null){kNet+=r.net;anyN=true;} }
   }
-  const kNom = (kCost>0&&anyG)? kGross/kCost*100 : null;
-  const kAdj = (kCost>0&&anyN)? kNet/kCost*100 : null;
-  const kKeep= (anyG&&kGross>0&&anyN)? kNet/kGross*100 : null;
-  const kAdShare = (anyN&&kNet>0)? kCost/kNet*100 : null; // 광고비 비중 = 광고비/실판매액
+  const kNom  = totalCostAll>0 ? totalAdRevAll/totalCostAll*100 : null;      // 명목 ROAS = 광고전환매출/광고비
+  const kKeep = (anyG&&kGross>0&&anyN)? kNet/kGross*100 : null;              // 반영율 = 실판매액/판매액
+  const kAdj  = (kNom!=null&&kKeep!=null)? kNom*(kKeep/100) : null;          // 보정 ROAS = 명목 × 반영율
+  const kAdShare = (anyN&&kNet>0)? kCostSales/kNet*100 : null;              // 광고비 비중 = 광고비/실판매액
 
   let html="";
 
@@ -417,12 +420,13 @@ function render(){
   const periodLbl = rangeActive()?"선택 기간":"전체 기간";
   const cards=[
     {lab:`총 광고비 <span class="muted" style="font-size:11px">(${periodLbl})</span>`, val:won(totalCostAll)},
+    {lab:`<span class="dot" style="background:var(--roas-ad)"></span>총 광고전환매출`, val:won(totalAdRevAll)},
     {lab:`<span class="dot" style="background:var(--gross)"></span>총 판매액`, val:anyG?won(kGross):"—"},
     {lab:`<span class="dot" style="background:var(--net)"></span>총 실판매액`, val:anyN?won(kNet):"—"},
+    {lab:`<span class="dot" style="background:var(--roas-nom)"></span>명목 ROAS <span class="muted" style="font-size:11px">(전환매출/광고비)</span>`, val:kNom==null?"—":pct(kNom)},
+    {lab:`<span class="dot" style="background:var(--roas-adj)"></span>보정 ROAS <span class="muted" style="font-size:11px">(반영율 적용)</span>`, val:kAdj==null?"—":pct(kAdj)},
+    {lab:`반영율 <span class="muted" style="font-size:11px">(실/판매액)</span>`, val:kKeep==null?"—":pct(kKeep,1)},
     {lab:`<span class="dot" style="background:var(--cost)"></span>광고비 비중 <span class="muted" style="font-size:11px">(광고비/실판매액)</span>`, val:kAdShare==null?"—":pct(kAdShare,1)},
-    {lab:`<span class="dot" style="background:var(--roas-nom)"></span>명목 ROAS`, val:kNom==null?"—":pct(kNom)},
-    {lab:`<span class="dot" style="background:var(--roas-adj)"></span>보정 ROAS`, val:kAdj==null?"—":pct(kAdj)},
-    {lab:`보정률 <span class="muted" style="font-size:11px">(실/판매액)</span>`, val:kKeep==null?"—":pct(kKeep,1)},
   ];
   html+=`<div class="cards">`+cards.map(c=>`<div class="card"><div class="lab">${c.lab}</div><div class="val">${c.val}</div></div>`).join("")+`</div>`;
 
@@ -433,9 +437,9 @@ function render(){
     <div class="charts">
       <div>
         <div class="legend">
-          <span><span class="dot" style="background:var(--gross)"></span>판매액</span>
-          <span><span class="dot" style="background:var(--net)"></span>실판매액</span>
           <span><span class="dot" style="background:var(--cost)"></span>광고비</span>
+          <span><span class="dot" style="background:var(--roas-ad)"></span>광고전환매출</span>
+          <span><span class="dot" style="background:var(--roas-adj)"></span>보정 광고전환매출</span>
         </div>
         <div class="chartbox" id="chartRev"></div>
       </div>
@@ -443,7 +447,6 @@ function render(){
         <div class="legend">
           <span><span class="dot" style="background:var(--roas-nom)"></span>명목 ROAS</span>
           <span><span class="dot" style="background:var(--roas-adj)"></span>보정 ROAS</span>
-          <span><span class="dot" style="background:var(--roas-ad)"></span>광고 ROAS</span>
         </div>
         <div class="chartbox" id="chartRoas"></div>
       </div>
@@ -453,11 +456,13 @@ function render(){
   // 표
   html+=`<div class="panel">
     <h2>${STATE.mode==="week"?"주간":"월별"} 상세</h2>
-    <p class="hint">명목 ROAS = 판매액÷광고비 · 보정 ROAS = 실판매액÷광고비 · 광고비율 = 광고비÷실판매액 · 광고 ROAS = 광고전환매출÷광고비(광고플랫폼 기준)</p>
+    <p class="hint">명목 ROAS = <b>광고전환매출</b>÷광고비 · 반영율 = 실판매액÷판매액 · 보정 ROAS = 명목 ROAS × 반영율 · 광고비율 = 광고비÷실판매액<br>
+      <span class="muted">※ 광고전환매출은 할인 전 판매가 기준이라 높게 잡히므로, 실판매액/판매액 비율(반영율)로 보정합니다.</span></p>
     <div class="tblwrap"><table>
       <thead><tr>
-        <th>기간</th><th>광고비</th><th>판매액</th><th>실판매액</th><th title="광고비 ÷ 실판매액">광고비율</th><th>보정률</th>
-        <th>명목 ROAS</th><th>보정 ROAS</th><th>광고전환매출</th><th>광고 ROAS</th>
+        <th>기간</th><th>광고비</th><th>광고전환매출</th><th>명목 ROAS</th>
+        <th>판매액</th><th>실판매액</th><th title="실판매액 ÷ 판매액">반영율</th>
+        <th>보정 ROAS</th><th title="광고비 ÷ 실판매액">광고비율</th>
       </tr></thead><tbody>`;
   for(const g of view){
     const lbl = g.partial ? `<span class="partial" title="이 기간에 광고는 있으나 일부 날짜만 판매액이 입력됨">${g.label} *</span>` : g.label;
@@ -465,31 +470,35 @@ function render(){
     html+=`<tr>
       <td>${lbl}</td>
       <td class="num">${won(g.cost)}</td>
-      <td class="num">${won(g.grossV)}</td>
-      <td class="num">${won(g.netV)}</td>
-      <td class="num">${adRate==null?'<span class="muted">—</span>':pct(adRate,1)}</td>
-      <td class="num">${g.keepRate==null?'<span class="muted">—</span>':pct(g.keepRate,1)}</td>
+      <td class="num">${won(g.adRev)}</td>
       <td class="num">${g.roasNom==null?'<span class="muted">—</span>':pct(g.roasNom)}</td>
+      <td class="num muted">${won(g.grossV)}</td>
+      <td class="num muted">${won(g.netV)}</td>
+      <td class="num">${g.keepRate==null?'<span class="muted">—</span>':pct(g.keepRate,1)}</td>
       <td class="num">${g.roasAdj==null?'<span class="muted">—</span>':`<span class="${g.roasAdj>=100?'pos':'neg'}">${pct(g.roasAdj)}</span>`}</td>
-      <td class="num muted">${won(g.adRev)}</td>
-      <td class="num muted">${g.roasAd==null?'—':pct(g.roasAd)}</td>
+      <td class="num">${adRate==null?'<span class="muted">—</span>':pct(adRate,1)}</td>
     </tr>`;
   }
   // 합계
-  const sum=view.reduce((a,g)=>{a.cost+=g.cost;a.adRev+=g.adRev; if(g.grossV!=null){a.gross+=g.grossV;a.g=true;} if(g.netV!=null){a.net+=g.netV;a.n=true;} return a;},{cost:0,adRev:0,gross:0,net:0,g:false,n:false});
-  const sNom=sum.g&&sum.cost?sum.gross/sum.cost*100:null, sAdj=sum.n&&sum.cost?sum.net/sum.cost*100:null;
+  const sum=view.reduce((a,g)=>{a.cost+=g.cost;a.adRev+=g.adRev;
+    if(g.grossV!=null){a.gross+=g.grossV;a.g=true;}
+    if(g.netV!=null){a.net+=g.netV;a.n=true;a.costNet+=g.cost;}
+    if(g.adjRev!=null){a.adjRev+=g.adjRev;a.adj=true;}
+    return a;},{cost:0,adRev:0,gross:0,net:0,adjRev:0,costNet:0,g:false,n:false,adj:false});
+  const sNom=sum.cost?sum.adRev/sum.cost*100:null;
   const sKeep=sum.g&&sum.gross&&sum.n?sum.net/sum.gross*100:null;
-  const sAdRate=sum.n&&sum.net?sum.cost/sum.net*100:null;
+  const sAdj=(sum.adj&&sum.cost)?sum.adjRev/sum.cost*100:null;
+  const sAdRate=sum.n&&sum.net?sum.costNet/sum.net*100:null;
   html+=`</tbody><tfoot><tr>
-      <td>합계</td><td class="num">${won(sum.cost)}</td>
+      <td>합계</td>
+      <td class="num">${won(sum.cost)}</td>
+      <td class="num">${won(sum.adRev)}</td>
+      <td class="num">${sNom==null?"—":pct(sNom)}</td>
       <td class="num">${sum.g?won(sum.gross):"—"}</td>
       <td class="num">${sum.n?won(sum.net):"—"}</td>
-      <td class="num">${sAdRate==null?"—":pct(sAdRate,1)}</td>
       <td class="num">${sKeep==null?"—":pct(sKeep,1)}</td>
-      <td class="num">${sNom==null?"—":pct(sNom)}</td>
       <td class="num">${sAdj==null?"—":pct(sAdj)}</td>
-      <td class="num">${won(sum.adRev)}</td>
-      <td class="num">${sum.cost?pct(sum.adRev/sum.cost*100):"—"}</td>
+      <td class="num">${sAdRate==null?"—":pct(sAdRate,1)}</td>
     </tr></tfoot></table></div>
   </div>`;
 
@@ -497,14 +506,13 @@ function render(){
 
   // 차트 그리기
   barChart($("#chartRev"), labels, [
-    {name:"판매액", color:"var(--gross)", values:recent.map(g=>g.grossV)},
-    {name:"실판매액", color:"var(--net)", values:recent.map(g=>g.netV)},
     {name:"광고비", color:"var(--cost)", values:recent.map(g=>g.cost)},
+    {name:"광고전환매출", color:"var(--roas-ad)", values:recent.map(g=>g.adRev)},
+    {name:"보정 광고전환매출", color:"var(--roas-adj)", values:recent.map(g=>g.adjRev)},
   ], {fmt:wonShort});
   barChart($("#chartRoas"), labels, [
     {name:"명목 ROAS", color:"var(--roas-nom)", values:recent.map(g=>g.roasNom)},
     {name:"보정 ROAS", color:"var(--roas-adj)", values:recent.map(g=>g.roasAdj)},
-    {name:"광고 ROAS", color:"var(--roas-ad)", values:recent.map(g=>g.roasAd)},
   ], {fmt:v=>Math.round(v)+"%", unit:"%"});
 }
 
