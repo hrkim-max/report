@@ -443,7 +443,7 @@ function barChart(el, labels, series, {fmt=wonShort, unit=""}={}){
 /* ---- 렌더 ---- */
 let STATE={daily:[],prodDaily:[],hasSalesUrl:false,mode:"week",loadedAt:null,brandId:CONFIG.BRANDS[0].id,cache:{},startDate:null,endDate:null,
            prodSort:"cost",prodDir:-1,prodSel:null,prodOnlySel:false,prodSearch:"",detailAll:false,rangeInit:false,
-           alertBasis:"confirmed"};   // 점검 리포트 비교 기준: confirmed(확정구간) | range(선택기간)
+           alertBasis:"range"};   // 점검 리포트 비교 기준 기본값: range(선택기간) | confirmed(확정구간)
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
 // 최초 진입/브랜드 전환 시 기간 기본값 = 최근 DEFAULT_RANGE_DAYS일
 function applyDefaultRange(){
@@ -792,8 +792,8 @@ function renderAlertPanel(){
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
       <h2 style="margin:0">⚠ 상품 점검 리포트 <span class="muted" style="font-size:12px">· ${a.W}일 비교 (${a.curStart}~${a.curEnd}) vs 직전 ${a.W}일 (${a.prevStart}~${a.prevEnd})${a.hasPrev?"":" · 직전 데이터 부족"}</span></h2>
       <div class="seg" id="alertBasisSeg" style="font-size:12.5px">
-        <button data-b="confirmed"${!isRange?' class="on"':''}>확정 구간 기준</button>
         <button data-b="range"${isRange?' class="on"':''}>선택 기간 기준</button>
+        <button data-b="confirmed"${!isRange?' class="on"':''}>확정 구간 기준</button>
       </div>
     </div>
     <p class="hint">${isRange
