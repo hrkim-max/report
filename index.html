@@ -443,7 +443,8 @@ function barChart(el, labels, series, {fmt=wonShort, unit=""}={}){
 /* ---- 렌더 ---- */
 let STATE={daily:[],prodDaily:[],hasSalesUrl:false,mode:"week",loadedAt:null,brandId:CONFIG.BRANDS[0].id,cache:{},startDate:null,endDate:null,
            prodSort:"cost",prodDir:-1,prodSel:null,prodOnlySel:false,prodSearch:"",detailAll:false,rangeInit:false,
-           alertBasis:"range"};   // 점검 리포트 비교 기준 기본값: range(선택기간) | confirmed(확정구간)
+           alertBasis:"range",   // 점검 리포트 비교 기준 기본값: range(선택기간) | confirmed(확정구간)
+           rangeNote:""};
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
 // 최초 진입/브랜드 전환 시 기간 기본값 = 최근 DEFAULT_RANGE_DAYS일
 function applyDefaultRange(){
@@ -461,6 +462,7 @@ function filteredDaily(){
 }
 function dateShift(key,days){ const d=new Date(key+"T00:00:00"); d.setDate(d.getDate()+days);
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function rangeActive(){ return !!(STATE.startDate||STATE.endDate); }
 // 해당 월(YYYY-MM)이 선택 기간에 통째로 포함되는가 (부분 달엔 월 확정치를 쓰면 안 됨)
 function rangeCoversMonth(ym){
@@ -480,16 +482,25 @@ function setRangeBar(){
      <span>~</span>
      <input type="date" id="rbEnd" min="${min}" max="${max}" value="${e}">
      <button data-preset="all"${!rangeActive()?' class="rb-on"':''}>전체</button>
+     <button data-preset="today">오늘</button>
      <button data-preset="7">최근 7일</button>
      <button data-preset="30">최근 30일</button>
      <button data-preset="90">최근 90일</button>
      <button data-preset="month">이번 달</button>
-     <span class="rb-info">${rangeActive()?`선택 ${s} ~ ${e} · ${n}일`:`전체 ${min} ~ ${max} · ${n}일`}</span>`;
-  $("#rbStart").addEventListener("change",ev=>{ STATE.startDate=ev.target.value||null; setRangeBar(); dispatchView(); });
-  $("#rbEnd").addEventListener("change",ev=>{ STATE.endDate=ev.target.value||null; setRangeBar(); dispatchView(); });
+     <span class="rb-info">${rangeActive()?`선택 ${s} ~ ${e} · ${n}일`:`전체 ${min} ~ ${max} · ${n}일`}${STATE.rangeNote?` <span class="bdg lo">${STATE.rangeNote}</span>`:""}</span>`;
+  $("#rbStart").addEventListener("change",ev=>{ STATE.rangeNote=""; STATE.startDate=ev.target.value||null; setRangeBar(); dispatchView(); });
+  $("#rbEnd").addEventListener("change",ev=>{ STATE.rangeNote=""; STATE.endDate=ev.target.value||null; setRangeBar(); dispatchView(); });
   bar.querySelectorAll("button[data-preset]").forEach(btn=>btn.addEventListener("click",()=>{
     const p=btn.dataset.preset;
+    STATE.rangeNote="";
     if(p==="all"){ STATE.startDate=null; STATE.endDate=null; }
+    else if(p==="today"){
+      const t=todayKey();
+      let d=t;
+      if(t>max){ d=max; STATE.rangeNote=`오늘(${t}) 데이터 없음 → 최신일`; }
+      else if(t<min){ d=min; STATE.rangeNote="데이터 시작일"; }
+      STATE.startDate=d; STATE.endDate=d;
+    }
     else if(p==="month"){ STATE.startDate=max.slice(0,7)+"-01"; STATE.endDate=max; }
     else { const days=parseInt(p); let st=dateShift(max,-(days-1)); if(st<min)st=min; STATE.startDate=st; STATE.endDate=max; }
     setRangeBar(); dispatchView();
