@@ -405,20 +405,22 @@ function groupBy(daily, mode){
   return arr;
 }
 
-/* ---- SVG 그룹 막대 차트 ---- */
-function barChart(el, labels, series, {fmt=wonShort, unit=""}={}){
+function niceTop(max){ if(max<=0)return 1; const p=Math.pow(10,Math.floor(Math.log10(max))); const f=max/p;
+  const s=f<=1?1:f<=1.5?1.5:f<=2?2:f<=3?3:f<=5?5:f<=7?7:10; return s*p; }
+const valLabel=(v,unit)=> unit==="%" ? Math.round(v)+"%" : wonShort(v);
+
+/* ---- SVG 그룹 막대 차트 (막대 위 값 표시) ---- */
+function barChart(el, labels, series, {fmt=wonShort, unit="", values=true}={}){
   if(!labels.length){ el.innerHTML='<div class="muted" style="padding:30px 0;text-align:center">표시할 데이터가 없습니다</div>'; return; }
-  const W=Math.max(labels.length*Math.max(46, series.length*22+26)+70, 320), H=240;
-  const P={t:14,r:12,b:46,l:56};
+  const W=Math.max(labels.length*Math.max(46, series.length*22+26)+70, 320), H=248;
+  const P={t:22,r:12,b:46,l:56};
   const iw=W-P.l-P.r, ih=H-P.t-P.b;
   let max=0; series.forEach(s=>s.values.forEach(v=>{ if(v!=null&&v>max)max=v; }));
-  if(max<=0) max=1;
-  const nice=(m)=>{ const p=Math.pow(10,Math.floor(Math.log10(m))); const f=m/p;
-    const s=f<=1?1:f<=2?2:f<=5?5:10; return s*p; };
-  const top=nice(max); const ticks=4;
+  const top=niceTop(max); const ticks=4;
   const x=i=> P.l + i*(iw/labels.length);
   const bw=iw/labels.length;
   const gap=6, groupW=bw-gap*2, each=groupW/series.length;
+  const labFont = each>=20?8 : each>=13?7 : 0;   // 너무 좁으면 라벨 생략(hover로 대체)
   let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" preserveAspectRatio="xMinYMin meet" role="img">`;
   for(let t=0;t<=ticks;t++){
     const val=top*t/ticks, yy=P.t+ih-(val/top)*ih;
@@ -429,12 +431,56 @@ function barChart(el, labels, series, {fmt=wonShort, unit=""}={}){
     series.forEach((s,si)=>{
       const v=s.values[i]; if(v==null) return;
       const bh=(v/top)*ih; const bx=x(i)+gap+si*each; const by=P.t+ih-bh;
+      const cx=bx+Math.max(each-2,1)/2;
       svg+=`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${Math.max(each-2,1).toFixed(1)}" height="${Math.max(bh,0).toFixed(1)}" rx="2" fill="${s.color}">`
          +`<title>${lab} · ${s.name}: ${unit==="%"?(v.toFixed(0)+"%"):won(v)}</title></rect>`;
+      if(values && labFont && v>0){
+        svg+=`<text x="${cx.toFixed(1)}" y="${(by-3).toFixed(1)}" font-size="${labFont}" fill="${s.color}" text-anchor="start" transform="rotate(-55 ${cx.toFixed(1)} ${(by-3).toFixed(1)})">${valLabel(v,unit)}</text>`;
+      }
     });
     const cx=x(i)+bw/2;
-    const short = lab.length>7 ? lab : lab;
     svg+=`<text x="${cx}" y="${H-P.b+16}" font-size="10" text-anchor="middle" transform="rotate(18 ${cx} ${H-P.b+16})">${lab}</text>`;
+  });
+  svg+=`</svg>`;
+  el.innerHTML=svg;
+}
+
+/* ---- SVG 다중 선 차트 (점 위 값 표시, null은 끊김) ---- */
+const LINE_COLORS=["#2563eb","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#64748b","#0ea5e9"];
+function lineChart(el, labels, series, {fmt=wonShort, unit="", values=true}={}){
+  if(!labels.length || !series.length){ el.innerHTML='<div class="muted" style="padding:30px 0;text-align:center">표시할 데이터가 없습니다</div>'; return; }
+  const W=Math.max(labels.length*Math.max(60, 44)+80, 340), H=248;
+  const P={t:22,r:14,b:46,l:56};
+  const iw=W-P.l-P.r, ih=H-P.t-P.b;
+  let max=0,min=Infinity; series.forEach(s=>s.values.forEach(v=>{ if(v!=null){ if(v>max)max=v; if(v<min)min=v; } }));
+  if(!isFinite(min)) min=0;
+  const top=niceTop(max), ticks=4;
+  const n=labels.length;
+  const x=i=> P.l + (n===1? iw/2 : i*(iw/(n-1)));
+  const y=v=> P.t+ih-(v/top)*ih;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" preserveAspectRatio="xMinYMin meet" role="img">`;
+  for(let t=0;t<=ticks;t++){
+    const val=top*t/ticks, yy=P.t+ih-(val/top)*ih;
+    svg+=`<line x1="${P.l}" y1="${yy}" x2="${W-P.r}" y2="${yy}" stroke="var(--grid)"/>`;
+    svg+=`<text x="${P.l-8}" y="${yy+3.5}" font-size="10" text-anchor="end">${fmt(val)}</text>`;
+  }
+  labels.forEach((lab,i)=>{
+    const cx=x(i);
+    svg+=`<text x="${cx}" y="${H-P.b+16}" font-size="10" text-anchor="middle" transform="rotate(18 ${cx} ${H-P.b+16})">${lab}</text>`;
+  });
+  series.forEach(s=>{
+    const col=s.color; let dpath="", started=false;
+    s.values.forEach((v,i)=>{
+      if(v==null){ started=false; return; }
+      const px=x(i), py=y(v);
+      dpath += (started?" L":" M")+px.toFixed(1)+" "+py.toFixed(1); started=true;
+    });
+    if(dpath) svg+=`<path d="${dpath}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    s.values.forEach((v,i)=>{
+      if(v==null) return; const px=x(i), py=y(v);
+      svg+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2.6" fill="${col}"><title>${labels[i]} · ${s.name}: ${unit==="%"?(v.toFixed(0)+"%"):won(v)}</title></circle>`;
+      if(values && series.length<=3) svg+=`<text x="${px.toFixed(1)}" y="${(py-6).toFixed(1)}" font-size="8.5" fill="${col}" text-anchor="middle">${valLabel(v,unit)}</text>`;
+    });
   });
   svg+=`</svg>`;
   el.innerHTML=svg;
@@ -696,7 +742,7 @@ function render(){
     {name:"광고전환매출", color:"var(--roas-ad)", values:recent.map(g=>g.adRev)},
     {name:"보정 광고전환매출", color:"var(--roas-adj)", values:recent.map(g=>g.adjRev)},
   ], {fmt:wonShort});
-  barChart($("#chartRoas"), labels, [
+  lineChart($("#chartRoas"), labels, [
     {name:"명목 ROAS", color:"var(--roas-nom)", values:recent.map(g=>g.roasNom)},
     {name:"보정 ROAS", color:"var(--roas-adj)", values:recent.map(g=>g.roasAdj)},
   ], {fmt:v=>Math.round(v)+"%", unit:"%"});
@@ -825,6 +871,31 @@ function renderAlertPanel(){
   });
 }
 
+// 상품별 매출 추이: 선택 상품(매출 상위 N) 의 광고전환매출을 기간별로
+function bucketKey(dk, mode){
+  const d=new Date(dk+"T00:00:00");
+  if(mode==="month") return {k:`${d.getFullYear()}-${pad(d.getMonth()+1)}`, lab:`${String(d.getFullYear()).slice(2)}.${pad(d.getMonth()+1)}`};
+  const ws=weekStart(d);
+  return {k:`${ws.getFullYear()}-${pad(ws.getMonth()+1)}-${pad(ws.getDate())}`, lab:`${pad(ws.getMonth()+1)}/${pad(ws.getDate())}`};
+}
+function productTrend(nameSet, topProds){
+  const mode = STATE.mode==="month"?"month":"week";
+  const periods={}, map={};
+  for(const r of STATE.prodDaily){
+    if(STATE.startDate && r.key<STATE.startDate) continue;
+    if(STATE.endDate && r.key>STATE.endDate) continue;
+    if(!nameSet.has(r.name)) continue;
+    const {k,lab}=bucketKey(r.key, mode); periods[k]=lab;
+    (map[r.name] ||= {}); map[r.name][k]=(map[r.name][k]||0)+r.adRev;
+  }
+  let keys=Object.keys(periods).sort(); if(keys.length>14) keys=keys.slice(-14);
+  const labels=keys.map(k=>periods[k]);
+  const names=topProds.filter(p=>nameSet.has(p.name)).slice(0,8).map(p=>p.name);
+  const series=names.map((nm,i)=>({ name:nm, color:LINE_COLORS[i%LINE_COLORS.length],
+    values:keys.map(k=> (map[nm] && map[nm][k]!=null)? map[nm][k] : 0) }));
+  return {labels, series, count:names.length, mode};
+}
+
 const PROD_COLS=[
   {k:"name",label:"상품명",cls:"pname"},{k:"cost",label:"광고비"},{k:"adRev",label:"광고전환매출"},
   {k:"roas",label:"명목 ROAS"},{k:"imp",label:"노출수"},{k:"clk",label:"클릭수"},
@@ -853,9 +924,19 @@ function renderProductPanel(){
   const arr=(k)=> k===key ? (dir===1?" ▲":" ▼") : "";
   const th=PROD_COLS.map(col=>`<th class="sortable ${col.cls||""}" data-k="${col.k}"${col.title?` title="${col.title}"`:""}>${col.label}${arr(col.k)}</th>`).join("");
 
+  // 매출 추이(선택 상품, 매출 상위 8개)
+  const tr = productTrend(sel, [...selProds].sort((a,b)=>b.adRev-a.adRev));
+  const trendHtml = (tr.labels.length>=2 && tr.series.length) ? `
+    <div style="margin:8px 0 16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">📈 선택 상품 매출(광고전환매출) 추이
+        <span class="muted" style="font-weight:400;font-size:12px">· ${tr.mode==="month"?"월별":"주별"}${tr.count<selCount?` · 매출 상위 ${tr.count}개만 표시`:""}</span></div>
+      <div class="legend">${tr.series.map(s=>`<span><span class="dot" style="background:${s.color}"></span>${escapeHtml(s.name)}</span>`).join("")}</div>
+      <div class="chartbox" id="prodTrend"></div>
+    </div>` : "";
+
   let html=`<div class="panel">
     <h2>상품별 광고 상세 <span class="muted" style="font-size:12px">· ${periodLbl}</span></h2>
-    <p class="hint">열 머리글을 클릭하면 정렬(오름/내림 전환) · 상품명 검색 · 체크한 상품만 <b>선택 합계</b>에 반영. ROAS·CTR·CPC는 광고전환매출 기준(실판매액 보정은 상품별로 불가).</p>
+    <p class="hint">열 머리글을 클릭하면 정렬(오름/내림 전환) · 상품명 검색 · 체크한 상품만 <b>선택 합계</b>·<b>추이 그래프</b>에 반영. ROAS·CTR·CPC는 광고전환매출 기준(실판매액 보정은 상품별로 불가).</p>
     <div class="prodbar">
       <input type="text" id="prodSearch" placeholder="🔎 상품명 검색" value="${escapeHtml(STATE.prodSearch)}">
       <button id="prodAll">전체 선택</button>
@@ -863,6 +944,7 @@ function renderProductPanel(){
       <label class="only"><input type="checkbox" id="prodOnly"${STATE.prodOnlySel?" checked":""}> 선택만 보기</label>
       <span class="pinfo">${allNames.length}개 상품 · ${selCount}개 선택${q?` · 검색 결과 ${shown.length}개`:""}</span>
     </div>
+    ${trendHtml}
     <div class="tblwrap"><table class="prod">
       <thead><tr>
         <th class="chk"><input type="checkbox" id="prodHead" ${selCount===allNames.length&&allNames.length>0?"checked":""}></th>
@@ -898,6 +980,7 @@ function renderProductPanel(){
     </tr></tfoot></table></div>
   </div>`;
   c.innerHTML=html;
+  if(trendHtml) lineChart($("#prodTrend"), tr.labels, tr.series, {fmt:wonShort});
 
   const ensureSet=()=>{ if(STATE.prodSel===null) STATE.prodSel=new Set(allNames); return STATE.prodSel; };
   c.querySelectorAll("th.sortable").forEach(h=>h.addEventListener("click",()=>{
