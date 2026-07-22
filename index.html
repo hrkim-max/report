@@ -447,9 +447,11 @@ function barChart(el, labels, series, {fmt=wonShort, unit="", values=true}={}){
 
 /* ---- SVG 다중 선 차트 (점 위 값 표시, null은 끊김) ---- */
 const LINE_COLORS=["#2563eb","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#64748b","#0ea5e9"];
-function lineChart(el, labels, series, {fmt=wonShort, unit="", values=true}={}){
+function lineChart(el, labels, series, {fmt=wonShort, unit="", values=true, labelMax=3, labelAll=false}={}){
   if(!labels.length || !series.length){ el.innerHTML='<div class="muted" style="padding:30px 0;text-align:center">표시할 데이터가 없습니다</div>'; return; }
-  const W=Math.max(labels.length*Math.max(60, 44)+80, 340), H=248;
+  const n0=labels.length;
+  const perPt = n0>36?20 : n0>18?32 : n0>10?48 : 60;
+  const W=Math.max(n0*perPt+80, 340), H=248;
   const P={t:22,r:14,b:46,l:56};
   const iw=W-P.l-P.r, ih=H-P.t-P.b;
   let max=0,min=Infinity; series.forEach(s=>s.values.forEach(v=>{ if(v!=null){ if(v>max)max=v; if(v<min)min=v; } }));
@@ -464,11 +466,15 @@ function lineChart(el, labels, series, {fmt=wonShort, unit="", values=true}={}){
     svg+=`<line x1="${P.l}" y1="${yy}" x2="${W-P.r}" y2="${yy}" stroke="var(--grid)"/>`;
     svg+=`<text x="${P.l-8}" y="${yy+3.5}" font-size="10" text-anchor="end">${fmt(val)}</text>`;
   }
+  const step=Math.ceil(n/12);   // x축 라벨이 많으면 솎아내기
   labels.forEach((lab,i)=>{
+    if(step>1 && i%step!==0 && i!==n-1) return;
     const cx=x(i);
     svg+=`<text x="${cx}" y="${H-P.b+16}" font-size="10" text-anchor="middle" transform="rotate(18 ${cx} ${H-P.b+16})">${lab}</text>`;
   });
-  series.forEach(s=>{
+  // 값 라벨은 선별로 위/아래로 분리해 겹침 방지 (짝수=위, 홀수=아래)
+  const dyOf=si=> si%2===0 ? -7 : 15;
+  series.forEach((s,si)=>{
     const col=s.color; let dpath="", started=false;
     s.values.forEach((v,i)=>{
       if(v==null){ started=false; return; }
@@ -479,7 +485,8 @@ function lineChart(el, labels, series, {fmt=wonShort, unit="", values=true}={}){
     s.values.forEach((v,i)=>{
       if(v==null) return; const px=x(i), py=y(v);
       svg+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2.6" fill="${col}"><title>${labels[i]} · ${s.name}: ${unit==="%"?(v.toFixed(0)+"%"):won(v)}</title></circle>`;
-      if(values && series.length<=3) svg+=`<text x="${px.toFixed(1)}" y="${(py-6).toFixed(1)}" font-size="8.5" fill="${col}" text-anchor="middle">${valLabel(v,unit)}</text>`;
+      if(values && series.length<=labelMax && v>0 && (labelAll || step<=1 || i%step===0 || i===n-1))
+        svg+=`<text x="${px.toFixed(1)}" y="${(py+dyOf(si)).toFixed(1)}" font-size="8.5" fill="${col}" text-anchor="middle" paint-order="stroke" stroke="var(--panel)" stroke-width="2.6">${valLabel(v,unit)}</text>`;
     });
   });
   svg+=`</svg>`;
@@ -879,21 +886,23 @@ function bucketKey(dk, mode){
   return {k:`${ws.getFullYear()}-${pad(ws.getMonth()+1)}-${pad(ws.getDate())}`, lab:`${pad(ws.getMonth()+1)}/${pad(ws.getDate())}`};
 }
 function productTrend(nameSet, topProds){
-  const mode = STATE.mode==="month"?"month":"week";
-  const periods={}, map={};
+  // 일자별 집계 (선택 기간의 모든 날짜를 축으로)
+  const s=STATE.startDate, e=STATE.endDate;
+  const map={}, dayset=new Set();
   for(const r of STATE.prodDaily){
-    if(STATE.startDate && r.key<STATE.startDate) continue;
-    if(STATE.endDate && r.key>STATE.endDate) continue;
+    if(s && r.key<s) continue;
+    if(e && r.key>e) continue;
     if(!nameSet.has(r.name)) continue;
-    const {k,lab}=bucketKey(r.key, mode); periods[k]=lab;
-    (map[r.name] ||= {}); map[r.name][k]=(map[r.name][k]||0)+r.adRev;
+    dayset.add(r.key);
+    (map[r.name] ||= {}); map[r.name][r.key]=(map[r.name][r.key]||0)+r.adRev;
   }
-  let keys=Object.keys(periods).sort(); if(keys.length>14) keys=keys.slice(-14);
-  const labels=keys.map(k=>periods[k]);
+  let keys=[...dayset].sort();
+  if(keys.length>62) keys=keys.slice(-62);   // 너무 길면 최근 62일
+  const labels=keys.map(k=>k.slice(5).replace("-","/"));  // MM/DD
   const names=topProds.filter(p=>nameSet.has(p.name)).slice(0,8).map(p=>p.name);
   const series=names.map((nm,i)=>({ name:nm, color:LINE_COLORS[i%LINE_COLORS.length],
     values:keys.map(k=> (map[nm] && map[nm][k]!=null)? map[nm][k] : 0) }));
-  return {labels, series, count:names.length, mode};
+  return {labels, series, count:names.length};
 }
 
 const PROD_COLS=[
@@ -929,7 +938,7 @@ function renderProductPanel(){
   const trendHtml = (tr.labels.length>=2 && tr.series.length) ? `
     <div style="margin:8px 0 16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">📈 선택 상품 매출(광고전환매출) 추이
-        <span class="muted" style="font-weight:400;font-size:12px">· ${tr.mode==="month"?"월별":"주별"}${tr.count<selCount?` · 매출 상위 ${tr.count}개만 표시`:""}</span></div>
+        <span class="muted" style="font-weight:400;font-size:12px">· 일자별${tr.count<selCount?` · 매출 상위 ${tr.count}개만 표시`:""} · 점에 마우스를 올리면 값 표시</span></div>
       <div class="legend">${tr.series.map(s=>`<span><span class="dot" style="background:${s.color}"></span>${escapeHtml(s.name)}</span>`).join("")}</div>
       <div class="chartbox" id="prodTrend"></div>
     </div>` : "";
@@ -980,7 +989,7 @@ function renderProductPanel(){
     </tr></tfoot></table></div>
   </div>`;
   c.innerHTML=html;
-  if(trendHtml) lineChart($("#prodTrend"), tr.labels, tr.series, {fmt:wonShort});
+  if(trendHtml) lineChart($("#prodTrend"), tr.labels, tr.series, {fmt:wonShort, labelMax:8, labelAll:true});
 
   const ensureSet=()=>{ if(STATE.prodSel===null) STATE.prodSel=new Set(allNames); return STATE.prodSel; };
   c.querySelectorAll("th.sortable").forEach(h=>h.addEventListener("click",()=>{
