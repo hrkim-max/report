@@ -369,23 +369,29 @@ function parseMaemaDaily(text){
   return {byKey, byMonth, min, max, n};
 }
 const hasMaema = () => !!(MAEMA && MAEMA.n>0);
-/* 매마 매출이 '마감된' 달인가 —
+/* 매마 매출이 '마감된' 달인가 — 판단 기준은 '매마 일별 매출액' 탭 하나로 통일.
    로켓 매입은 발주일에만 금액이 찍혀 빈 날이 많으므로(빈칸 = 0원, 미입력이 아님)
-   일별 탭의 마지막 날짜로 판단하면 안 됩니다. '월간보고' 탭에 그 달 매마가
-   입력돼 있으면 마감된 것으로 봅니다. */
+   일별 탭의 마지막 날짜로 판단할 수 없습니다. 그래서
+     ① 그 달에 일별 매마 값이 1건 이상 있고
+     ② 그 달이 이미 지난 달(달의 마지막 날이 오늘/최신 데이터일 이전)
+   두 조건을 만족하면 마감으로 봅니다. */
 function nextYm(ym){ const [y,m]=ym.split("-").map(Number); const d=new Date(y,m,1);
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
 function maemaMonthClosed(ym, chSel){
+  if(!hasMaema()) return false;
   const ids=(chSel||STATE.ch)==="all" ? CONFIG.CHANNELS.map(c=>c.id) : [chSel||STATE.ch];
-  if(MONTHLY && MONTHLY.months.length)
-    return ids.every(id=>{ const cf=confirmedMonth(id,ym); return cf && cf.maema!=null; });
-  // 월간보고 탭이 없으면 일별 입력 구간으로 대체 판단
+  if(!ids.some(id=>MAEMA.byMonth[`${ym}|${id}`]!=null)) return false;   // ① 값 없음
   const b=monthBounds(ym);
-  return hasMaema() && MAEMA.min<=b.first && MAEMA.max>=b.last;
+  const nowKey = todayKey();
+  const ref = (DATA_MAX && DATA_MAX>nowKey) ? DATA_MAX : nowKey;
+  return b.last < ref;                                                  // ② 이미 지난 달
 }
-// [from,to] 가 걸치는 모든 달이 마감돼 있어야 비율 비교가 유효
+/* [from,to] 구간의 매마 매출을 광고비와 비교해도 되는가.
+   ① 입력이 구간 끝까지 진행됐으면(to <= 마지막 입력일) 진행 중인 달이라도 유효, 또는
+   ② 구간이 걸치는 모든 달이 마감된 경우. */
 function maemaCovers(from,to){
   if(!hasMaema()) return false;
+  if(to<=MAEMA.max) return true;                       // ① 입력이 구간 끝까지 진행됨
   let ym=from.slice(0,7); const last=to.slice(0,7);
   let guard=0;
   while(ym<=last && guard++<600){ if(!maemaMonthClosed(ym)) return false; ym=nextYm(ym); }
@@ -727,6 +733,7 @@ function setRangeBar(){
      <span>~</span>
      <input type="date" id="rbEnd" min="${min}" max="${max}" value="${e}">
      <button data-preset="all"${!rangeActive()?' class="rb-on"':''}>전체</button>
+     <button data-preset="today">오늘</button>
      <button data-preset="7">최근 7일</button>
      <button data-preset="30">최근 30일</button>
      <button data-preset="90">최근 90일</button>
@@ -738,6 +745,17 @@ function setRangeBar(){
   bar.querySelectorAll("button[data-preset]").forEach(btn=>btn.addEventListener("click",()=>{
     const p=btn.dataset.preset; STATE.rangeNote="";
     if(p==="all"){ STATE.startDate=null; STATE.endDate=null; }
+    else if(p==="today"){
+      const t=todayKey(); let d=t;
+      if(t>max){ d=max; STATE.rangeNote=`오늘(${t}) 데이터 없음 → 최신일 ${max}`; }
+      else if(t<min){ d=min; STATE.rangeNote="데이터 시작일"; }
+      STATE.startDate=d; STATE.endDate=d;
+      // 하루만 볼 때는 주간 라벨이 오해를 부르므로 일별 뷰로 전환
+      if(STATE.mode==="week"||STATE.mode==="month"){
+        STATE.mode="day";
+        [...$("#periodSeg").children].forEach(x=>x.classList.toggle("on",x.dataset.p==="day"));
+      }
+    }
     else if(p==="month"){ STATE.startDate=max.slice(0,7)+"-01"; STATE.endDate=max; }
     else if(p==="prevmonth"){
       const first=new Date(max.slice(0,7)+"-01T00:00:00"); first.setMonth(first.getMonth()-1);
@@ -813,9 +831,9 @@ function maemaForRange(){
     // 기간 안에서 매마가 아직 마감되지 않은 달 목록
     const open=[]; let ym=s.slice(0,7); const last=e.slice(0,7); let guard=0;
     while(ym<=last && guard++<600){ if(!maemaMonthClosed(ym)) open.push(ym); ym=nextYm(ym); }
-    // 마감 안 된 달이 섞이면 비율을 내지 않습니다
+    // 입력이 구간을 못 덮으면 비율을 내지 않습니다
     // (예: 광고비는 30일치인데 매마는 1일치 → 4700% 같은 무의미한 값이 나옴)
-    const ok = open.length===0 && maema>0;
+    const ok = maemaCovers(s,e) && maema>0;
     return { daily:true, maema, cost:chLevel.cost, rev:chLevel.rev,
              adShare: ok ? chLevel.cost/maema*100 : null,
              adDep:   ok ? chLevel.rev/maema*100  : null,
@@ -839,10 +857,11 @@ function maemaForRange(){
 function maemaBasisNote(m){
   if(!m) return "";
   if(m.daily){
-    if(m.noData) return `<span class="muted" style="font-size:11px">(이 기간 매마 매출 미입력)</span>`;
+    if(m.noData) return `<span class="muted" style="font-size:11px">(미입력)</span>`
+      + ` <span class="bdg hi" title="'매마 일별 매출액' 탭에서 ${m.s} ~ ${m.e} 구간이 모두 비어 있습니다. 최종 입력일은 ${MAEMA.max} 입니다.">시트 미입력 · 최종 ${MAEMA.max}</span>`;
     return `<span class="muted" style="font-size:11px">(일별 · ${m.s} ~ ${m.e})</span>`
-      + (m.open&&m.open.length
-         ? ` <span class="bdg lo" title="${m.open.join(", ")} 은 매마 매출이 아직 마감되지 않아 일부만 잡혀 있습니다">${m.open.join(", ")} 미마감</span>` : "");
+      + (m.mismatch
+         ? ` <span class="bdg lo" title="'매마 일별 매출액' 탭 최종 입력일이 ${MAEMA.max} 라서 선택 기간(~${m.e})을 다 덮지 못합니다${m.open&&m.open.length?` · 미마감: ${m.open.join(", ")}`:""}">일부만 입력 · 최종 ${MAEMA.max}</span>` : "");
   }
   if(m.used.length){
     const span = m.used.length===1 ? m.used[0] : `${m.used[0]}~${m.used[m.used.length-1]} ${m.used.length}개월`;
@@ -944,13 +963,25 @@ function render(){
   const periodLbl = rangeActive()?"선택 기간":"전체 기간";
   const chLbl = STATE.ch==="all" ? "로켓+윙" : chName(STATE.ch);
   const mm=maemaForRange();
+
+  /* --- 매마 매출 미입력 안내 --- */
+  if(mm && mm.daily && (mm.noData || mm.mismatch)){
+    html+=`<div class="banner">
+      📥 <b>선택 기간의 매마 매출이 시트에 ${mm.noData?"입력되지 않았습니다":"일부만 입력돼 있습니다"}.</b>
+      ('매마 일별 매출액' 탭 최종 입력일 <b>${MAEMA.max}</b> · 선택 기간 ${mm.s} ~ ${mm.e})
+      <br>· 매마 매출 ${mm.noData?"금액과 ":""}<b>광고비 비중·광고 의존도</b>는 표시되지 않습니다.
+      광고비는 전 기간인데 매마는 일부만 잡혀 비율이 왜곡되기 때문입니다.
+      <br>· 시트에 해당 기간 매마 매출을 입력하고 <b>↻ 새로고침</b> 하면 자동으로 반영됩니다.
+      ${MAEMA.max?`(입력된 구간을 보려면 기간을 <b>${MAEMA.max}</b> 이전으로 맞추거나 <b>지난 달</b> 프리셋을 눌러보세요.)`:""}
+    </div>`;
+  }
   const cards=[];
   if(mm){
     cards.push({lab:`<span class="dot" style="background:var(--good)"></span>매마 매출 <span class="muted" style="font-size:11px">(자사 인식)</span> ${maemaBasisNote(mm)}`,
                 val: mm.maema!=null?won(mm.maema):"—"});
     cards.push({lab:`광고비 비중 <span class="muted" style="font-size:11px">(광고비/매마 매출)</span>${
                   canUseConfirmed()?"":` <span class="bdg lo" title="매마 매출·광고비 모두 채널 전체 값입니다(브랜드·캠페인 필터 미적용)">채널 전체</span>`}${
-                  mm.mismatch?` <span class="bdg hi" title="선택 기간(${mm.s} ~ ${mm.e})에 매마 매출이 아직 마감되지 않은 달이 포함돼 비율을 낼 수 없습니다(광고비는 전 기간, 매마는 일부만 잡혀 값이 왜곡됨). '월간보고' 탭에 해당 월 매마 매출을 입력하거나 기간을 마감된 달로 맞춰주세요.">기간 불일치</span>`:""}`,
+                  (mm.mismatch||mm.noData)?` <span class="bdg hi" title="'매마 일별 매출액' 탭의 입력이 선택 기간(${mm.s} ~ ${mm.e})을 덮지 못합니다(최종 입력 ${hasMaema()?MAEMA.max:"-"}). 광고비는 전 기간, 매마는 일부만 잡혀 비율이 왜곡되므로 표시하지 않습니다. 해당 기간 매마 매출을 시트에 입력하면 자동으로 계산됩니다.">기간 불일치</span>`:""}`,
                 val: mm.adShare==null?"—":pct(mm.adShare,1)});
   }
   cards.push(...[
@@ -1208,7 +1239,8 @@ function renderMaemaPanel(){
       const md=hasMaema() ? MAEMA.byMonth[`${ym}|${c.id}`] : null;
       if(!src && md==null) return null;
       const d=Object.assign({maema:null,cost:null,rev:null,imp:null,clk:null,qty:null,ord:null}, src||{});
-      if(md!=null) d.maema=md;        // 일별 탭 값 우선
+      // 매마 매출은 '매마 일별 매출액' 탭으로 통일 (일별 탭이 있으면 월간보고 매마 값은 쓰지 않음)
+      d.maema = hasMaema() ? md : (src?src.maema:null);
       return {c,d};
     }).filter(Boolean);
     if(!per.length) continue;
@@ -1248,9 +1280,10 @@ function renderMaemaPanel(){
   const partialNote = (T.nM>0 && T.nM<T.n)
     ? ` <span class="bdg lo" title="매마 매출이 입력된 ${T.nM}개월만으로 계산 (광고비·전환매출 칸은 ${T.n}개월 전체 합계)">${T.nM}/${T.n}개월</span>` : "";
   el.innerHTML=`<div class="panel">
-    <h2>자사 매출 기준 <span class="muted" style="font-size:12px">· '월간보고' 탭 · 매마 매출 = 자사에서 매출로 인식하는 금액</span></h2>
+    <h2>자사 매출 기준 <span class="muted" style="font-size:12px">· 매마 매출 = 자사에서 매출로 인식하는 금액</span></h2>
     <p class="hint"><b>광고비 비중</b> = 어드민 집행 광고비 ÷ 매마 매출 · <b>광고 의존도</b> = 어드민 광고 전환 매출 ÷ 매마 매출 · <b>ROAS</b> = 광고 전환 매출 ÷ 광고비<br>
-      <span class="muted">※ 이 표는 상단 기간·필터와 무관하게 <b>'월간보고' 탭에 입력된 월</b>을 그대로 보여줍니다(어드민 확정치). 매마 매출이 비어 있는 달은 '미입력'으로 표시됩니다.
+      <span class="muted">※ <b>매마 매출은 '매마 일별 매출액' 탭의 일별 합계</b>로 통일해 사용합니다(광고 지표는 '월간보고' 탭의 어드민 확정치).
+      이 표는 상단 기간·필터와 무관하게 입력된 월을 그대로 보여줍니다. 매마 매출이 비어 있는 달은 '미입력'으로 표시됩니다.
       광고 전환 매출은 쿠팡 소비자 판매가 기준이라 매마 매출과 성격이 달라, 두 값을 나눈 <b>비율</b>로만 해석하세요.</span></p>
     <div class="tblwrap"><table>
       <thead><tr><th>년/월</th><th>채널</th><th>매마 매출</th><th>광고비</th>
@@ -1291,7 +1324,7 @@ function maemaCrossCheckHTML(){
       const [ym,ch]=x.k.split("|");
       return `<li>${ym} ${chName(ch)} — 일별합 <b>${won(x.d)}</b> vs 월간보고 <b>${won(x.m)}</b> (차이 ${won(x.d-x.m)})</li>`;
     }).join("")}</ul>
-    <div class="muted" style="margin-top:6px">리포트는 <b>일별 탭</b> 값을 우선 사용합니다.</div></div>`;
+    <div class="muted" style="margin-top:6px">리포트의 매마 매출은 <b>'매마 일별 매출액' 탭</b>으로 통일해 사용합니다.</div></div>`;
 }
 
 /* 보정 계수 요약 — 일별 탭이 확정치 대비 얼마나 낮게 잡혀 있었는지 */
@@ -1678,12 +1711,11 @@ function monthStats(ym){
       if(cf.clk!=null)  t.clk=cf.clk;
       if(cf.ord!=null)  t.ord=cf.ord;
       if(cf.qty!=null)  t.qty=cf.qty;
-      t.maema=cf.maema; t.confirmed=true;
+      t.confirmed=true;
       derive(t);
     }
-    // 매마 일별 탭이 있으면 그 합을 우선 사용(월간보고 매마가 비어 있어도 계산됨)
-    const md=maemaSum(bb.first, bb.last, chId);
-    if(md!=null) t.maema=md;
+    // 매마 매출은 '매마 일별 매출액' 탭으로 통일 (없을 때만 월간보고 값으로 대체)
+    t.maema = hasMaema() ? maemaSum(bb.first, bb.last, chId) : (cf?cf.maema:null);
     t.adShare = (t.maema && t.cost!=null) ? t.cost/t.maema*100 : null;  // 광고비 비중
     t.adDep   = (t.maema && t.rev!=null)  ? t.rev/t.maema*100  : null;  // 광고 의존도
     return t;
@@ -1782,7 +1814,7 @@ function reportText(ym){
   }
   L.push("");
   if(s.all.maema!=null){
-    L.push(`※ 매마 매출은 '월간보고' 탭의 자사 인식 매출이며, 광고비·광고전환매출·노출·클릭·주문수는 어드민 확정치입니다.`);
+    L.push(`※ 매마 매출은 '매마 일별 매출액' 탭의 일별 합계(자사 인식 매출)이며, 광고비·광고전환매출·노출·클릭·주문수는 어드민 확정치입니다.`);
     L.push(`※ 광고비 비중 = 광고비 ÷ 매마 매출 · 광고 의존도 = 광고전환매출 ÷ 매마 매출`);
   }
   L.push(`※ 광고전환매출은 쿠팡 광고 어드민 기준(클릭 후 ${ATTRIB()}일)이며 취소·반품 반영 전입니다.`);
@@ -1859,9 +1891,9 @@ function renderReportDoc(months){
        <div class="muted" style="font-size:12.5px;margin-bottom:6px">${s.b.first} ~ ${s.b.last} · 전월(${prevYm(ym)}) 대비 증감 표시</div>
        ${blocks}${topHtml}${flHtml}
        <div class="rep-note">${s.all.maema!=null
-         ? `※ <b>매마 매출</b>은 '월간보고' 탭에 입력한 <b>자사 인식 매출</b>이고, 광고비·광고전환매출·노출·클릭·주문수는 같은 탭의 <b>어드민 확정치</b>입니다.
+         ? `※ <b>매마 매출</b>은 '매마 일별 매출액' 탭의 일별 합계(<b>자사 인식 매출</b>)이고, 광고비·광고전환매출·노출·클릭·주문수는 '월간보고' 탭의 <b>어드민 확정치</b>입니다.
             광고비 비중 = 광고비÷매마 매출, 광고 의존도 = 광고전환매출÷매마 매출.<br>`
-         : `※ 이 달은 '월간보고' 탭에 매마 매출이 아직 입력되지 않아 일별 광고 데이터로 집계했습니다.<br>`}
+         : `※ 이 달은 <b>'매마 일별 매출액' 탭에 매마 매출이 아직 입력되지 않아</b> 광고 데이터만 집계했습니다.<br>`}
        ※ 광고전환매출은 <b>쿠팡 광고 어드민 기준</b>(클릭 후 ${ATTRIB()}일 내 발생분, 취소·반품 반영 전)이며 매마 매출과 성격이 달라 비율로만 해석하세요.
        ${prov?`<br>※ 이 달은 <b>전환 추적 ${ATTRIB()}일 구간</b>이 포함돼 전환매출·ROAS·주문수가 이후 더 올라갈 수 있습니다(잠정).`:""}</div>
      </div>`;
