@@ -580,6 +580,8 @@ const LINE_COLORS=["#2563eb","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","
 function lineChart(el, labels, series, o){
   o=o||{}; const fmt=o.fmt||wonShort, unit=o.unit||"", values=o.values!==false,
             labelMax=o.labelMax||3, labelAll=!!o.labelAll;
+  // 점 위 라벨·툴팁 표기 (CTR처럼 소수 % 는 반올림하면 0%가 되므로 따로 지정)
+  const lf = o.labelFmt || (v=>valLabel(v,unit));
   if(!el) return;
   if(!labels.length || !series.length){ el.innerHTML='<div class="muted" style="padding:30px 0;text-align:center">표시할 데이터가 없습니다</div>'; return; }
   const n=labels.length;
@@ -613,9 +615,9 @@ function lineChart(el, labels, series, o){
     if(dpath) svg+=`<path d="${dpath}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
     s.values.forEach((v,i)=>{
       if(v==null) return; const px=x(i), py=y(v);
-      svg+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2.6" fill="${s.color}"><title>${escapeHtml(labels[i])} · ${escapeHtml(s.name)}: ${unit==="%"?(v.toFixed(0)+"%"):won(v)}</title></circle>`;
+      svg+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2.6" fill="${s.color}"><title>${escapeHtml(labels[i])} · ${escapeHtml(s.name)}: ${lf(v)}</title></circle>`;
       if(values && series.length<=labelMax && v>0 && (labelAll || step<=1 || i%step===0 || i===n-1))
-        svg+=`<text x="${px.toFixed(1)}" y="${(py+dyOf(si)).toFixed(1)}" font-size="8.5" fill="${s.color}" text-anchor="middle" paint-order="stroke" stroke="var(--panel)" stroke-width="2.6">${valLabel(v,unit)}</text>`;
+        svg+=`<text x="${px.toFixed(1)}" y="${(py+dyOf(si)).toFixed(1)}" font-size="8.5" fill="${s.color}" text-anchor="middle" paint-order="stroke" stroke="var(--panel)" stroke-width="2.6">${lf(v)}</text>`;
     });
   });
   el.innerHTML=svg+`</svg>`;
@@ -810,10 +812,23 @@ function render(){
       </div>
       <div>
         <div class="legend">
-          <span><span class="dot" style="background:var(--roas)"></span>ROAS</span>
-          <span><span class="dot" style="background:var(--net)"></span>CPC</span>
+          <span><span class="dot" style="background:var(--roas)"></span>ROAS <span class="muted">(전환매출÷광고비)</span></span>
         </div>
         <div class="chartbox" id="chartRoas"></div>
+      </div>
+    </div>
+    <div class="charts" style="margin-top:6px">
+      <div>
+        <div class="legend">
+          <span><span class="dot" style="background:var(--net)"></span>CPC <span class="muted">(광고비÷클릭)</span></span>
+        </div>
+        <div class="chartbox" id="chartCpc"></div>
+      </div>
+      <div>
+        <div class="legend">
+          <span><span class="dot" style="background:var(--good)"></span>CTR <span class="muted">(클릭÷노출)</span></span>
+        </div>
+        <div class="chartbox" id="chartCtr"></div>
       </div>
     </div>
   </div>`;
@@ -895,6 +910,12 @@ function render(){
   lineChart($("#chartRoas"), labels, [
     {name:"ROAS", color:"var(--roas)", values:recent.map(g=>g.roas)},
   ], {fmt:v=>Math.round(v)+"%", unit:"%"});
+  lineChart($("#chartCpc"), labels, [
+    {name:"CPC", color:"var(--net)", values:recent.map(g=>g.cpc)},
+  ], {fmt:wonShort, labelFmt:v=>"₩"+Math.round(v).toLocaleString("ko-KR")});
+  lineChart($("#chartCtr"), labels, [
+    {name:"CTR", color:"var(--good)", values:recent.map(g=>g.ctr)},
+  ], {fmt:v=>v.toFixed(2)+"%", labelFmt:v=>v.toFixed(2)+"%"});
 
   $("#detailToggle")?.addEventListener("click",()=>{ STATE.detailAll=!STATE.detailAll; render(); });
   renderChannelPanel();
