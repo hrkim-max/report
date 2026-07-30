@@ -191,9 +191,15 @@ const PUB = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRG4AcZG3_C69j4VAco
 const CONFIG = {
   // 쿠팡 광고 채널. 탭을 추가하면 여기 한 줄만 넣으면 됩니다.
   CHANNELS: [
-    { id:"rocket", name:"로켓광고", short:"로켓", csv: PUB+"73011125",  color:"var(--rocket)" },
-    { id:"wing",   name:"윙광고",   short:"윙",   csv: PUB+"684917070", color:"var(--wing)" },
+    { id:"rocket", name:"로켓광고", short:"로켓", csv: PUB+"73011125",  color:"var(--rocket)",
+      alias:["로켓","로켓광고","로","rocket","로켓배송"] },
+    { id:"wing",   name:"윙광고",   short:"윙",   csv: PUB+"684917070", color:"var(--wing)",
+      alias:["윙","윙광고","wing","쿠팡윙"] },
   ],
+
+  // '월간보고' 탭 — 어드민 확정 월별 집계 + '매마 매출'(자사 인식 매출).
+  // 채널 블록이 가로로 나열되고, 각 행의 '판매 센터' 칸(로켓/윙)으로 채널을 구분합니다.
+  MONTHLY_CSV: PUB+"267096483",
 
   // 전환 어트리뷰션 기본 기준 ("14" = 총 전환매출액(14일), "1" = 1일)
   ATTR_DEFAULT: "14",
@@ -308,13 +314,127 @@ function parseCoupang(text, chId){
   return out;
 }
 
+/* ---- '월간보고' 탭 → 월×채널 어드민 확정치 + 매마 매출 ----
+   구조: 한 행에 채널 블록이 가로로 나열(년/월, 판매 센터, 매마 매출, 어드민 …).
+   '판매 센터' 칸(로켓/윙)으로 채널을 구분합니다. */
+const numOrNull = s => { s=String(s??"").trim(); return s===""?null:num(s); };
+let MONTHLY=null;
+function parseMonthly(text){
+  const rows=[]; parseCSVRows(text, r=>rows.push(r.slice()));
+  const h=rows.findIndex(r=>r.some(c=>String(c).trim()==="년/월"));
+  if(h<0) return {byKey:{},months:[]};
+  const hdr=rows[h].map(c=>String(c).trim());
+  const starts=[]; hdr.forEach((c,i)=>{ if(c==="년/월") starts.push(i); });
+  const blocks=starts.map(s=>{
+    const end = starts.find(x=>x>s) ?? hdr.length;
+    const col=(...names)=>{
+      for(const n of names){ for(let j=s;j<end;j++) if(hdr[j]===n) return j; }
+      for(const n of names){ for(let j=s;j<end;j++) if(hdr[j].indexOf(n)>=0) return j; }
+      return -1; };
+    return { ym:s,
+      ch:col("판매 센터","판매센터","채널"),
+      maema:col("매마 매출","매마매출","매마"),
+      rev:col("어드민 광고 전환 매출","광고 전환 매출","전환 매출"),
+      cost:col("어드민 집행 광고비","집행 광고비","광고비"),
+      imp:col("노출수","노출 수"), clk:col("클릭수","클릭 수"),
+      qty:col("판매수","판매 수"), ord:col("주문수","주문 수"),
+      memo:col("메모","비고") };
+  });
+  const chOf=(s)=>{ s=String(s||"").trim().toLowerCase();
+    if(!s) return null;
+    const c=CONFIG.CHANNELS.find(x=>(x.alias||[]).some(a=>a.toLowerCase()===s)
+      || x.name.toLowerCase()===s || (x.short||"").toLowerCase()===s);
+    return c?c.id:null; };
+  const byKey={}, months=new Set();
+  for(let i=h+1;i<rows.length;i++){
+    const r=rows[i]; if(!r) continue;
+    for(const b of blocks){
+      const m=String(r[b.ym]||"").trim().match(/^(\d{4})[-.\/]?(\d{1,2})$/);
+      if(!m) continue;
+      const cid = b.ch>=0 ? chOf(r[b.ch]) : null;
+      if(!cid) continue;                       // 채널 칸이 빈 행(미래 월)은 스킵
+      const ym=`${m[1]}-${pad(+m[2])}`;
+      const maema=b.maema>=0?numOrNull(r[b.maema]):null;
+      const rev=b.rev>=0?numOrNull(r[b.rev]):null;
+      const cost=b.cost>=0?numOrNull(r[b.cost]):null;
+      if(maema==null && rev==null && cost==null) continue;   // 아직 안 채워진 행
+      byKey[`${ym}|${cid}`]={ ym, ch:cid, maema, rev, cost,
+        imp:(b.imp>=0?numOrNull(r[b.imp]):null),
+        clk:(b.clk>=0?numOrNull(r[b.clk]):null),
+        qty:(b.qty>=0?numOrNull(r[b.qty]):null),
+        ord:(b.ord>=0?numOrNull(r[b.ord]):null),
+        memo:b.memo>=0?String(r[b.memo]||"").trim():"" };
+      months.add(ym);
+    }
+  }
+  return { byKey, months:[...months].sort() };
+}
+function confirmedMonth(ch, ym){ return MONTHLY ? (MONTHLY.byKey[`${ym}|${ch}`]||null) : null; }
+
+/* ---- 월 확정치 보정 계수 ----
+   일별 탭은 매일 받아쓰기 때문에 14일 전환 추적이 반영되지 않은 경우가 많습니다.
+   '월간보고' 탭의 어드민 확정치를 정답으로 보고, 월×채널별로
+   (확정치 ÷ 일별합) 비율을 각 일별 행에 곱해 총합이 확정치와 일치하게 맞춥니다.
+   비율만 곱하므로 일자별·상품별·캠페인별 구성비는 그대로 유지됩니다. */
+let FACTOR_INFO=[];      // 화면 안내용 요약
+function buildFactors(){
+  FACTOR_INFO=[];
+  for(const c of CONFIG.CHANNELS) for(const r of (RAW[c.id]||[])) r.f=null;
+  if(!MONTHLY || !MONTHLY.months.length) return;
+  // 1) 일별 원본의 월×채널 합계
+  const base={};
+  for(const c of CONFIG.CHANNELS) for(const r of (RAW[c.id]||[])){
+    const k=r.key.slice(0,7)+"|"+c.id;
+    let b=base[k];
+    if(!b) b=base[k]={cost:0,imp:0,clk:0,rev14:0,rev1:0,ord14:0,ord1:0,qty14:0,qty1:0};
+    b.cost+=r.cost; b.imp+=r.imp; b.clk+=r.clk;
+    b.rev14+=r.rev14; b.rev1+=r.rev1; b.ord14+=r.ord14; b.ord1+=r.ord1; b.qty14+=r.qty14; b.qty1+=r.qty1;
+  }
+  // 2) 계수 산출
+  const F={};
+  for(const k of Object.keys(MONTHLY.byKey)){
+    const cf=MONTHLY.byKey[k], b=base[k];
+    if(!b) continue;
+    const f=(numv,den)=> (numv!=null && den>0) ? numv/den : 1;
+    F[k]={ cost:f(cf.cost,b.cost), imp:f(cf.imp,b.imp), clk:f(cf.clk,b.clk),
+           rev14:f(cf.rev,b.rev14), ord14:f(cf.ord,b.ord14), qty14:f(cf.qty,b.qty14) };
+    const [ym,ch]=k.split("|");
+    FACTOR_INFO.push({ ym, ch, cost:F[k].cost, rev:F[k].rev14, ord:F[k].ord14,
+                       rawRev:b.rev14, cfRev:cf.rev, rawCost:b.cost, cfCost:cf.cost });
+  }
+  FACTOR_INFO.sort((a,b)=> a.ym<b.ym?1:a.ym>b.ym?-1:0);
+  // 3) 각 행에 계수 붙이기 (렌더마다 다시 찾지 않도록)
+  for(const c of CONFIG.CHANNELS) for(const r of (RAW[c.id]||[])){
+    r.f = F[r.key.slice(0,7)+"|"+c.id] || null;
+  }
+}
+// 보정이 실제로 적용되는 상태인가 (1일 기준일 때 전환 지표는 보정하지 않음)
+const correcting = () => STATE.correct && MONTHLY && MONTHLY.months.length>0;
+// 여러 채널 합계(현재 채널 선택 기준). 하나라도 없으면 null.
+function confirmedFor(ym, chSel){
+  if(!MONTHLY) return null;
+  const ids = chSel==="all" ? CONFIG.CHANNELS.map(c=>c.id) : [chSel];
+  const parts = ids.map(id=>confirmedMonth(id,ym));
+  if(parts.some(p=>!p)) return null;
+  const add=(k)=>{ let s=null; for(const p of parts){ if(p[k]!=null) s=(s||0)+p[k]; } return s; };
+  return { ym, ch:chSel, maema:add("maema"), rev:add("rev"), cost:add("cost"),
+           imp:add("imp"), clk:add("clk"), qty:add("qty"), ord:add("ord") };
+}
+// 해당 월(YYYY-MM)이 선택 기간에 통째로 포함되는가 (부분 달엔 월 확정치를 쓰면 안 됨)
+function rangeCoversMonth(ym){
+  const b=monthBounds(ym);
+  return (!STATE.startDate||STATE.startDate<=b.first) && (!STATE.endDate||STATE.endDate>=b.last);
+}
+// 확정치를 써도 되는 조건: 브랜드·캠페인 필터가 없어야 함(확정치는 채널 단위 값)
+function canUseConfirmed(){ return STATE.brand==="all" && STATE.camp==="all"; }
+
 /* ============================================================
    상태
    ============================================================ */
 const RAW = {};                 // {rocket:[rec], wing:[rec]}
 let DATA_MIN=null, DATA_MAX=null;
 let STATE = {
-  ch:"all", brand:"all", camp:"all", attr:CONFIG.ATTR_DEFAULT,
+  ch:"all", brand:"all", camp:"all", attr:CONFIG.ATTR_DEFAULT, correct:true,
   mode:"week", startDate:null, endDate:null, rangeInit:false, rangeNote:"",
   loadedAt:null, detailAll:false, breakdown:"camp",
   prodSort:"cost", prodDir:-1, prodSel:null, prodOnlySel:false, prodSearch:"", prodTrendMetric:"rev",
@@ -364,10 +484,19 @@ function filterRows(o){
 /* ---- 집계 ---- */
 function blank(extra){ return Object.assign({cost:0,rev:0,ord:0,qty:0,imp:0,clk:0}, extra||{}); }
 function addRow(t,r,a14){
-  t.cost+=r.cost; t.imp+=r.imp; t.clk+=r.clk;
-  t.rev += a14?r.rev14:r.rev1;
-  t.ord += a14?r.ord14:r.ord1;
-  t.qty += a14?r.qty14:r.qty1;
+  const f = (STATE.correct && r.f) ? r.f : null;
+  if(!f){
+    t.cost+=r.cost; t.imp+=r.imp; t.clk+=r.clk;
+    t.rev += a14?r.rev14:r.rev1;
+    t.ord += a14?r.ord14:r.ord1;
+    t.qty += a14?r.qty14:r.qty1;
+    return;
+  }
+  // 월 확정치 보정 적용 (1일 기준 전환 지표는 확정치와 성격이 달라 보정하지 않음)
+  t.cost+=r.cost*f.cost; t.imp+=r.imp*f.imp; t.clk+=r.clk*f.clk;
+  t.rev += a14 ? r.rev14*f.rev14 : r.rev1;
+  t.ord += a14 ? r.ord14*f.ord14 : r.ord1;
+  t.qty += a14 ? r.qty14*f.qty14 : r.qty1;
 }
 function derive(t){
   t.roas = t.cost>0 ? t.rev/t.cost*100 : null;   // ROAS = 광고전환매출 ÷ 광고비
@@ -386,6 +515,7 @@ function groupSum(rows, keyFn, extraFn){
     let g=m.get(k);
     if(!g){ g=blank({key:k}); if(extraFn) extraFn(g,r); m.set(k,g); }
     addRow(g,r,a14);
+    if(STATE.correct && r.f) g.corr=true;      // 월 확정치 보정이 반영된 그룹
     if(!g.lastKey || r.key>g.lastKey) g.lastKey=r.key;
     if(!g.firstKey|| r.key<g.firstKey) g.firstKey=r.key;
   }
@@ -552,12 +682,23 @@ function setFilterBar(){
        <button data-a="14"${a14?' class="on"':''}>14일</button>
        <button data-a="1"${!a14?' class="on"':''}>1일</button>
      </div>
-     <span class="fb-note">전환매출·주문수·판매수는 <b>클릭 후 ${ATTRIB()}일</b> 내 발생분 기준입니다.</span>`;
+     ${(MONTHLY&&MONTHLY.months.length)?`
+     <span class="fb-label" style="margin-left:6px" title="'월간보고' 탭의 어드민 확정치를 정답으로 보고 일별 데이터를 맞춥니다">월 확정치 보정</span>
+     <div class="seg" id="fbCorrect">
+       <button data-v="1"${STATE.correct?' class="on"':''}>적용</button>
+       <button data-v="0"${!STATE.correct?' class="on"':''}>원본</button>
+     </div>`:""}
+     <span class="fb-note">전환매출·주문수·판매수는 <b>클릭 후 ${ATTRIB()}일</b> 내 발생분 기준입니다.${
+       correcting()?`<br><span class="bdg conf">보정</span> ${MONTHLY.months.join(", ")} 은 <b>월간보고 확정치</b>에 맞춰 집계됩니다.`:""}</span>`;
   $("#fbBrand").addEventListener("change",e=>{ STATE.brand=e.target.value; STATE.prodSel=null; refresh(); });
   $("#fbCamp").addEventListener("change",e=>{ STATE.camp=e.target.value; STATE.prodSel=null; refresh(); });
   $("#fbAttr").addEventListener("click",e=>{
     const b=e.target.closest("button"); if(!b) return;
     STATE.attr=b.dataset.a; refresh();
+  });
+  $("#fbCorrect")?.addEventListener("click",e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    STATE.correct = b.dataset.v==="1"; refresh();
   });
 }
 
@@ -578,7 +719,32 @@ function render(){
 
   // 전환 추적(잠정) 구간
   const provStart = DATA_MAX ? dateShift(DATA_MAX, -(ATTRIB()-1)) : null;
-  for(const g of groups) g.provisional = provStart && g.lastKey && g.lastKey>=provStart;
+
+  // 월별 뷰: '월간보고' 탭의 어드민 확정치로 교체 + 매마 매출 붙이기
+  //  (온전한 달 + 브랜드·캠페인 필터 없음 일 때만 — 확정치는 채널 단위 값이라서)
+  const useConfirmed = (STATE.mode==="month" && MONTHLY && canUseConfirmed());
+  if(useConfirmed){
+    for(const g of groups){
+      if(!rangeCoversMonth(g.key)) continue;
+      const cf=confirmedFor(g.key, STATE.ch); if(!cf) continue;
+      if(cf.cost!=null) g.cost=cf.cost;
+      if(cf.rev!=null)  g.rev=cf.rev;
+      if(cf.imp!=null)  g.imp=cf.imp;
+      if(cf.clk!=null)  g.clk=cf.clk;
+      if(cf.ord!=null)  g.ord=cf.ord;
+      if(cf.qty!=null)  g.qty=cf.qty;
+      g.maema=cf.maema;
+      g.confirmed=true;
+      derive(g);
+    }
+  }
+  for(const g of groups){
+    // 보정된 구간은 확정치에 맞춰졌으므로 '잠정' 경고를 띄우지 않습니다
+    g.provisional = !g.confirmed && !g.corr && provStart && g.lastKey && g.lastKey>=provStart;
+    g.partialMonth = (STATE.mode==="month" && !g.confirmed && !rangeCoversMonth(g.key));
+    // 광고비 비중 = 광고비 ÷ 매마 매출
+    g.adShare = (g.maema && g.cost!=null) ? g.cost/g.maema*100 : null;
+  }
 
   const chartMax=CONFIG.CHART_MAX[STATE.mode]||8;
   const recent=groups.slice(-chartMax);
@@ -594,7 +760,10 @@ function render(){
       광고비·노출수·클릭수·CPC는 집행 즉시 확정되지만,
       <b>전환매출·ROAS·주문수·판매수는 이후 최대 ${ATTRIB()}일간 계속 올라갑니다.</b>
       표에서 <span class="bdg prov">⚠ 잠정</span> 표시된 기간은 실제보다 낮게 보이니 성과 하락으로 해석하지 마세요.
-      <br>· 시트의 일별 데이터는 <b>최근 ${ATTRIB()}일치를 재다운로드해 덮어쓰면</b> 확정치에 수렴합니다.
+      ${correcting()
+        ? `<br>· <b>${MONTHLY.months.join(", ")}</b> 은 <span class="bdg conf">보정</span> — '월간보고' 탭의 어드민 확정치에 맞춰 집계하므로 추적 누락이 보정된 값입니다.
+           그 외 기간은 일별 데이터 그대로입니다.`
+        : `<br>· '월간보고' 탭 확정치 보정이 <b>꺼져 있습니다</b>(원본 보기). 상단 필터바에서 <b>월 확정치 보정 → 적용</b>으로 켤 수 있습니다.`}
     </div>`;
   }
 
@@ -619,6 +788,9 @@ function render(){
 
   /* --- 채널 비교 --- */
   html+=`<div id="chPanel"></div>`;
+
+  /* --- 자사 매출 기준 (매마 매출) --- */
+  html+=`<div id="maemaPanel"></div>`;
 
   /* --- 상품 점검 --- */
   html+=`<div id="alertPanel"></div>`;
@@ -654,6 +826,8 @@ function render(){
 
   /* --- 기간 상세 표 --- */
   const detailMax=CONFIG.DETAIL_MAX[STATE.mode]||8;
+  // 매마 매출 컬럼은 월별 뷰에서만 (월간보고 탭이 월 단위 값이라서)
+  const showMaema = (STATE.mode==="month" && MONTHLY && MONTHLY.months.length>0);
   const rowsShown = STATE.detailAll ? view : view.slice(0, detailMax);
   const moreBtn = view.length>detailMax
     ? `<button id="detailToggle" style="font-size:12.5px;padding:6px 12px">${STATE.detailAll?`최근 ${detailMax}${unitTxt}만 보기`:`전체 ${view.length}${unitTxt} 보기`}</button>` : "";
@@ -663,19 +837,27 @@ function render(){
         <span class="muted" style="font-size:12px">· ${STATE.detailAll?`전체 ${view.length}${unitTxt}`:`최근 ${Math.min(detailMax,view.length)}${unitTxt}`}${rangeActive()?" · 기간 적용":""}</span></h2>
       ${moreBtn}
     </div>
-    <p class="hint">ROAS = <b>광고전환매출</b>÷광고비 · CTR = 클릭÷노출 · CPC = 광고비÷클릭 · 전환율 = 주문÷클릭 · CPA = 광고비÷주문<br>
-      <span class="muted">※ 광고전환매출은 쿠팡 광고 어드민의 전환매출(취소·반품 반영 전)이며, 실판매금액이 아닙니다.</span></p>
+    <p class="hint">ROAS = <b>광고전환매출</b>÷광고비 · CTR = 클릭÷노출 · CPC = 광고비÷클릭 · 전환율 = 주문÷클릭 · CPA = 광고비÷주문${showMaema?` · <b>광고비 비중</b> = 광고비÷매마 매출`:""}<br>
+      <span class="muted">※ 광고전환매출은 쿠팡 광고 어드민의 전환매출(취소·반품 반영 전)이며, 자사 인식 매출(매마)과는 다릅니다.
+      ${showMaema?`<span class="bdg conf">✔확정</span> 달은 '월간보고' 탭의 어드민 확정치로 집계합니다.`:""}</span></p>
     <div class="tblwrap"><table>
       <thead><tr>
-        <th>기간</th><th>광고비</th><th>광고전환매출</th><th>ROAS</th>
+        <th>기간</th>${showMaema?`<th title="'월간보고' 탭의 자사 인식 매출">매마 매출</th>`:""}<th>광고비</th>
+        ${showMaema?`<th title="광고비 ÷ 매마 매출">광고비 비중</th>`:""}<th>광고전환매출</th><th>ROAS</th>
         <th>노출수</th><th>클릭수</th><th title="클릭수 ÷ 노출수">CTR</th><th title="광고비 ÷ 클릭수">CPC</th>
         <th>주문수</th><th title="주문수 ÷ 클릭수">전환율</th><th title="광고비 ÷ 주문수">CPA</th><th>판매수량</th>
       </tr></thead><tbody>`;
   for(const g of rowsShown){
-    const lbl=g.label + (g.provisional?` <span class="bdg prov" title="전환 추적 중 — 전환매출·ROAS가 더 올라갈 수 있음">⚠잠정</span>`:"");
+    const lbl=g.label + (g.confirmed
+        ? ` <span class="bdg conf" title="'월간보고' 탭의 어드민 확정치로 집계">✔확정</span>`
+        : (g.corr ? ` <span class="bdg conf" title="월간보고 확정치에 맞춰 일별 데이터를 보정한 값">보정</span>`
+        : (g.provisional ? ` <span class="bdg prov" title="전환 추적 중 — 전환매출·ROAS가 더 올라갈 수 있음">⚠잠정</span>`
+        : (g.partialMonth ? ` <span class="bdg lo" title="선택 기간에 이 달의 일부만 포함됨">부분</span>` : ""))));
     html+=`<tr>
       <td>${lbl}</td>
+      ${showMaema?`<td class="num">${g.maema==null?'<span class="muted">—</span>':won(g.maema)}</td>`:""}
       <td class="num">${won(g.cost)}</td>
+      ${showMaema?`<td class="num">${g.adShare==null?'<span class="muted">—</span>':`<span class="${g.adShare<=25?'pos':'neg'}">${pct(g.adShare,1)}</span>`}</td>`:""}
       <td class="num">${won(g.rev)}</td>
       <td class="num">${g.roas==null?'<span class="muted">—</span>':`<span class="${g.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${pct(g.roas)}</span>`}</td>
       <td class="num muted">${cnt(g.imp)}</td>
@@ -688,10 +870,15 @@ function render(){
       <td class="num muted">${cnt(g.qty)}</td>
     </tr>`;
   }
-  const s=derive(rowsShown.reduce((a,g)=>{a.cost+=g.cost;a.rev+=g.rev;a.ord+=g.ord;a.qty+=g.qty;a.imp+=g.imp;a.clk+=g.clk;return a;},blank()));
+  const s=derive(rowsShown.reduce((a,g)=>{a.cost+=g.cost;a.rev+=g.rev;a.ord+=g.ord;a.qty+=g.qty;a.imp+=g.imp;a.clk+=g.clk;
+    if(g.maema!=null){ a.maema=(a.maema||0)+g.maema; a.mCost=(a.mCost||0)+g.cost; } return a;},blank()));
+  const sShare = s.maema ? s.mCost/s.maema*100 : null;   // 매마 있는 달만으로 계산
   html+=`</tbody><tfoot><tr>
       <td>합계</td>
-      <td class="num">${won(s.cost)}</td><td class="num">${won(s.rev)}</td><td class="num">${s.roas==null?"—":pct(s.roas)}</td>
+      ${showMaema?`<td class="num">${s.maema==null?"—":won(s.maema)}</td>`:""}
+      <td class="num">${won(s.cost)}</td>
+      ${showMaema?`<td class="num">${sShare==null?"—":pct(sShare,1)}</td>`:""}
+      <td class="num">${won(s.rev)}</td><td class="num">${s.roas==null?"—":pct(s.roas)}</td>
       <td class="num">${cnt(s.imp)}</td><td class="num">${cnt(s.clk)}</td>
       <td class="num">${s.ctr==null?"—":pct(s.ctr,2)}</td><td class="num">${s.cpc==null?"—":won(s.cpc)}</td>
       <td class="num">${cnt(s.ord)}</td><td class="num">${s.cvr==null?"—":pct(s.cvr,2)}</td>
@@ -711,6 +898,7 @@ function render(){
 
   $("#detailToggle")?.addEventListener("click",()=>{ STATE.detailAll=!STATE.detailAll; render(); });
   renderChannelPanel();
+  renderMaemaPanel();
   renderAlertPanel();
   renderBreakdown();
   renderProductPanel();
@@ -730,7 +918,7 @@ function renderChannelPanel(){
     const share = sum>0 ? t.cost/sum*100 : 0;
     return `<div class="chbox">
       <div class="t"><span class="dot" style="background:${c.color}"></span>${c.name}
-        <span class="muted" style="font-weight:400;font-size:11.5px">· 광고비 비중 ${pct(share,1)}</span></div>
+        <span class="muted" style="font-weight:400;font-size:11.5px" title="전체 광고비 중 이 채널이 차지하는 비율">· 광고비 점유율 ${pct(share,1)}</span></div>
       <div class="kv"><span>광고비</span><b>${won(t.cost)}</b></div>
       <div class="kv"><span>광고전환매출</span><b>${won(t.rev)}</b></div>
       <div class="kv"><span>ROAS</span><b class="${t.roas!=null&&t.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${t.roas==null?"—":pct(t.roas)}</b></div>
@@ -777,6 +965,112 @@ function renderChannelPanel(){
     name:p.c.name, color:p.c.color, values:keys.map(k=>p.m[k]?p.m[k].cost:0) })), {fmt:wonShort});
   lineChart($("#chChartRoas"), labels, perCh.map(p=>({
     name:p.c.name, color:p.c.color, values:keys.map(k=>p.m[k]?p.m[k].roas:null) })), {fmt:v=>Math.round(v)+"%", unit:"%"});
+}
+
+/* ============================================================
+   자사 매출 기준 (매마 매출) — '월간보고' 탭 값
+   ============================================================ */
+function renderMaemaPanel(){
+  const el=$("#maemaPanel"); if(!el) return;
+  if(!MONTHLY || !MONTHLY.months.length){
+    el.innerHTML = (MONTHLY&&MONTHLY.failed)
+      ? `<div class="banner"><b>⚠️ '월간보고' 탭을 불러오지 못했습니다.</b> 매마 매출 기준 지표는 표시되지 않습니다. 시트 게시 범위가 <b>전체 문서</b>인지 확인해 주세요.</div>`
+      : "";
+    return;
+  }
+  const months=[...MONTHLY.months].reverse();
+  const rowsHtml=[];
+  // T.costM/revM = 매마 매출이 입력된 달만의 합 (비율 계산용 — 기간이 어긋나면 비율이 왜곡되므로 분리)
+  const T={maema:0,cost:0,rev:0,costM:0,revM:0,anyMaema:false,nM:0,n:0};
+  for(const ym of months){
+    const per=CONFIG.CHANNELS.map(c=>({c, d:confirmedMonth(c.id,ym)})).filter(x=>x.d);
+    if(!per.length) continue;
+    const sum={maema:null,cost:null,rev:null,imp:null,clk:null,qty:null};
+    for(const {d} of per) for(const k of Object.keys(sum)) if(d[k]!=null) sum[k]=(sum[k]||0)+d[k];
+    const line=(label,d,isSum)=>{
+      const adShare = (d.maema && d.cost!=null) ? d.cost/d.maema*100 : null;   // 광고비 비중
+      const adDep   = (d.maema && d.rev!=null)  ? d.rev/d.maema*100  : null;   // 광고 의존도
+      const roas    = (d.cost) ? d.rev/d.cost*100 : null;
+      return `<tr${isSum?' style="font-weight:700;background:var(--panel2)"':''}>
+        <td>${isSum?ym:""}</td>
+        <td>${label}</td>
+        <td class="num">${d.maema==null?'<span class="muted">미입력</span>':won(d.maema)}</td>
+        <td class="num">${won(d.cost)}</td>
+        <td class="num">${adShare==null?'<span class="muted">—</span>':`<span class="${adShare<=25?'pos':'neg'}">${pct(adShare,1)}</span>`}</td>
+        <td class="num">${won(d.rev)}</td>
+        <td class="num">${adDep==null?'<span class="muted">—</span>':pct(adDep,1)}</td>
+        <td class="num">${roas==null?'<span class="muted">—</span>':pct(roas)}</td>
+        <td class="num muted">${cnt(d.imp)}</td>
+        <td class="num muted">${cnt(d.clk)}</td>
+        <td class="num muted">${cnt(d.qty)}</td>
+      </tr>`;
+    };
+    rowsHtml.push(line(`<b>합계</b>`, sum, true));
+    for(const {c,d} of per) rowsHtml.push(line(`<span class="dot" style="background:${c.color}"></span> ${c.name}`, d, false));
+    T.n++;
+    if(sum.cost!=null) T.cost+=sum.cost;
+    if(sum.rev!=null)  T.rev+=sum.rev;
+    if(sum.maema!=null){
+      T.maema+=sum.maema; T.anyMaema=true; T.nM++;
+      if(sum.cost!=null) T.costM+=sum.cost;
+      if(sum.rev!=null)  T.revM+=sum.rev;
+    }
+  }
+  const tShare = T.anyMaema&&T.maema>0 ? T.costM/T.maema*100 : null;
+  const tDep   = T.anyMaema&&T.maema>0 ? T.revM/T.maema*100 : null;
+  const partialNote = (T.nM>0 && T.nM<T.n)
+    ? ` <span class="bdg lo" title="매마 매출이 입력된 ${T.nM}개월만으로 계산 (광고비·전환매출 칸은 ${T.n}개월 전체 합계)">${T.nM}/${T.n}개월</span>` : "";
+  el.innerHTML=`<div class="panel">
+    <h2>자사 매출 기준 <span class="muted" style="font-size:12px">· '월간보고' 탭 · 매마 매출 = 자사에서 매출로 인식하는 금액</span></h2>
+    <p class="hint"><b>광고비 비중</b> = 어드민 집행 광고비 ÷ 매마 매출 · <b>광고 의존도</b> = 어드민 광고 전환 매출 ÷ 매마 매출 · <b>ROAS</b> = 광고 전환 매출 ÷ 광고비<br>
+      <span class="muted">※ 이 표는 상단 기간·필터와 무관하게 <b>'월간보고' 탭에 입력된 월</b>을 그대로 보여줍니다(어드민 확정치). 매마 매출이 비어 있는 달은 '미입력'으로 표시됩니다.
+      광고 전환 매출은 쿠팡 소비자 판매가 기준이라 매마 매출과 성격이 달라, 두 값을 나눈 <b>비율</b>로만 해석하세요.</span></p>
+    <div class="tblwrap"><table>
+      <thead><tr><th>년/월</th><th>채널</th><th>매마 매출</th><th>광고비</th>
+        <th title="광고비 ÷ 매마 매출">광고비 비중</th><th>광고 전환 매출</th>
+        <th title="광고 전환 매출 ÷ 매마 매출">광고 의존도</th><th>ROAS</th>
+        <th>노출수</th><th>클릭수</th><th>판매수</th></tr></thead>
+      <tbody>${rowsHtml.join("")}</tbody>
+      <tfoot><tr><td>전체</td><td>로켓+윙</td><!-- 합계 -->
+        <td class="num">${T.anyMaema?won(T.maema):"—"}</td>
+        <td class="num">${won(T.cost)}</td>
+        <td class="num">${tShare==null?"—":pct(tShare,1)+partialNote}</td>
+        <td class="num">${won(T.rev)}</td>
+        <td class="num">${tDep==null?"—":pct(tDep,1)+partialNote}</td>
+        <td class="num">${T.cost>0?pct(T.rev/T.cost*100):"—"}</td>
+        <td class="num"></td><td class="num"></td><td class="num"></td></tr></tfoot>
+    </table></div>
+    ${factorSummaryHTML()}
+  </div>`;
+}
+
+/* 보정 계수 요약 — 일별 탭이 확정치 대비 얼마나 낮게 잡혀 있었는지 */
+function factorSummaryHTML(){
+  if(!FACTOR_INFO.length) return "";
+  const gap=(f)=> (f-1)*100;
+  const rows=FACTOR_INFO.map(x=>{
+    const gRev=gap(x.rev), gCost=gap(x.cost);
+    const cell=(g)=> Math.abs(g)<0.05 ? `<span class="muted">동일</span>`
+      : `<span class="${g>0?'pos':'neg'}">${g>0?"+":""}${g.toFixed(1)}%</span>`;
+    return `<tr>
+      <td>${x.ym}</td><td>${chName(x.ch)}</td>
+      <td class="num muted">${won(x.rawRev)}</td>
+      <td class="num">${won(x.cfRev)}</td>
+      <td class="num">${cell(gRev)}</td>
+      <td class="num muted">${won(x.rawCost)}</td>
+      <td class="num">${won(x.cfCost)}</td>
+      <td class="num">${cell(gCost)}</td>
+    </tr>`;}).join("");
+  return `<div style="margin:6px 0 14px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px">🔧 월 확정치 보정 내역
+      <span class="muted" style="font-weight:400;font-size:12px">· ${STATE.correct?"현재 <b>적용 중</b>":"현재 <b>미적용</b>(원본 보기)"} · 상단 필터바에서 전환</span></div>
+    <p class="hint" style="margin-bottom:8px">일별 탭은 매일 받아쓰기 때문에 <b>14일 전환 추적이 덜 반영</b>됩니다.
+      아래 비율만큼 일별 값을 곱해서 월 합계가 확정치와 일치하도록 맞춥니다(일자·상품·캠페인 구성비는 유지).</p>
+    <div class="tblwrap"><table>
+      <thead><tr><th>년/월</th><th>채널</th><th>전환매출(일별합)</th><th>전환매출(확정)</th><th>보정</th>
+        <th>광고비(일별합)</th><th>광고비(확정)</th><th>보정</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+  </div>`;
 }
 
 /* ============================================================
@@ -1121,11 +1415,29 @@ function monthsAvailable(){
   return [...s].sort();
 }
 // ym 월의 채널별/전체 집계 (+ 전월 비교)
+//  '월간보고' 탭에 입력된 달은 어드민 확정치로 교체하고 매마 매출을 붙입니다.
 function monthStats(ym){
   const b=monthBounds(ym), pb=monthBounds(prevYm(ym));
-  const one=(chId,bb)=>total(filterRows({ch:chId, brand:"all", camp:"all", s:bb.first, e:bb.last}));
-  const per=CONFIG.CHANNELS.map(c=>({ c, t:one(c.id,b), p:one(c.id,pb) }));
-  return { ym, b, pb, per, all:one("all",b), allPrev:one("all",pb) };
+  const one=(chId, bb, yy)=>{
+    const t=total(filterRows({ch:chId, brand:"all", camp:"all", s:bb.first, e:bb.last}));
+    const cf=confirmedFor(yy, chId);
+    if(cf){
+      if(cf.cost!=null) t.cost=cf.cost;
+      if(cf.rev!=null)  t.rev=cf.rev;
+      if(cf.imp!=null)  t.imp=cf.imp;
+      if(cf.clk!=null)  t.clk=cf.clk;
+      if(cf.ord!=null)  t.ord=cf.ord;
+      if(cf.qty!=null)  t.qty=cf.qty;
+      t.maema=cf.maema; t.confirmed=true;
+      derive(t);
+    }
+    t.adShare = (t.maema && t.cost!=null) ? t.cost/t.maema*100 : null;  // 광고비 비중
+    t.adDep   = (t.maema && t.rev!=null)  ? t.rev/t.maema*100  : null;  // 광고 의존도
+    return t;
+  };
+  const py=prevYm(ym);
+  const per=CONFIG.CHANNELS.map(c=>({ c, t:one(c.id,b,ym), p:one(c.id,pb,py) }));
+  return { ym, b, pb, per, all:one("all",b,ym), allPrev:one("all",pb,py) };
 }
 const dRate=(now,before)=> (now==null||before==null||!before) ? null : (now-before)/before*100;
 function dTag(now,before,better){
@@ -1140,7 +1452,14 @@ function dTagTxt(now,before,better){
   return ` (전월 대비 ${r>=0?"▲":"▼"}${Math.abs(r).toFixed(0)}%)`;
 }
 function metricLines(t,p,html){
-  const L=[
+  const L=[];
+  // 자사 인식 매출(매마) 기준 지표 — '월간보고' 탭에 값이 있는 달만
+  if(t.maema!=null){
+    L.push(["매마 매출 (자사 인식)", won(t.maema), t.maema, p&&p.maema, "up"]);
+    L.push(["광고비 비중", t.adShare==null?"—":pct(t.adShare,1), t.adShare, p&&p.adShare, "down"]);
+    L.push(["광고 의존도", t.adDep==null?"—":pct(t.adDep,1), t.adDep, p&&p.adDep, "up"]);
+  }
+  L.push(...[
     ["광고비", won(t.cost), t.cost, p&&p.cost, "down"],
     ["광고전환매출", won(t.rev), t.rev, p&&p.rev, "up"],
     ["ROAS", t.roas==null?"—":pct(t.roas), t.roas, p&&p.roas, "up"],
@@ -1153,7 +1472,7 @@ function metricLines(t,p,html){
     ["CPA", t.cpa==null?"—":won(t.cpa), t.cpa, p&&p.cpa, "down"],
     ["객단가", t.aov==null?"—":won(t.aov), t.aov, p&&p.aov, "up"],
     ["판매수량", cnt(t.qty), t.qty, p&&p.qty, "up"],
-  ];
+  ]);
   if(html) return `<div class="rep-kv">`+L.map(x=>
     `<div><span class="k">${x[0]}</span> <b>${x[1]}</b>${dTag(x[2],x[3],x[4])}</div>`).join("")+`</div>`;
   return L.map(x=>`- ${x[0]}: ${x[1]}${dTagTxt(x[2],x[3],x[4]).replace(/[▲▼]/g,m=>m==="▲"?"+":"-")}`).join("\n");
@@ -1187,7 +1506,7 @@ function reportText(ym){
     if(!t.cost && !t.rev) continue;
     const share = s.all.cost>0 ? t.cost/s.all.cost*100 : 0;
     L.push("");
-    L.push(`■ ${c.name} (광고비 비중 ${pct(share,1)})`);
+    L.push(`■ ${c.name} (광고비 점유율 ${pct(share,1)})`);
     L.push(metricLines(t,p,false));
   }
   const tops=monthTopProducts(ym,10);
@@ -1209,7 +1528,11 @@ function reportText(ym){
     gd.forEach(x=>L.push(`- ${x.name} 광고비 ${won(x.c.cost)} / ROAS ${pct(x.c.roas)}`));
   }
   L.push("");
-  L.push(`※ 매출은 쿠팡 광고 어드민의 광고전환매출(클릭 후 ${ATTRIB()}일 기준, 취소·반품 반영 전)이며 실판매금액과는 다릅니다.`);
+  if(s.all.maema!=null){
+    L.push(`※ 매마 매출은 '월간보고' 탭의 자사 인식 매출이며, 광고비·광고전환매출·노출·클릭·주문수는 어드민 확정치입니다.`);
+    L.push(`※ 광고비 비중 = 광고비 ÷ 매마 매출 · 광고 의존도 = 광고전환매출 ÷ 매마 매출`);
+  }
+  L.push(`※ 광고전환매출은 쿠팡 광고 어드민 기준(클릭 후 ${ATTRIB()}일)이며 취소·반품 반영 전입니다.`);
   if(monthProvisional(ym)) L.push(`※ 이 달은 전환 추적 ${ATTRIB()}일 구간이 포함돼 전환매출·ROAS가 더 올라갈 수 있습니다(잠정).`);
   return L.join("\n");
 }
@@ -1220,7 +1543,10 @@ function renderReportDoc(months){
   const prov=monthProvisional(ym);
   const blocks=[
     `<div class="rep-blk">
-       <div class="rep-h">① 전체 <span class="sup">로켓광고 + 윙광고</span>${prov?` <span class="bdg prov" title="전환 추적 중 — 수치가 더 올라갈 수 있음">⚠잠정</span>`:` <span class="bdg conf" title="전환 추적 기간이 지나 확정된 달">✔확정</span>`}</div>
+       <div class="rep-h">① 전체 <span class="sup">로켓광고 + 윙광고</span>${
+         s.all.confirmed ? ` <span class="bdg conf" title="'월간보고' 탭의 어드민 확정치로 집계">✔어드민 확정</span>`
+         : (prov ? ` <span class="bdg prov" title="전환 추적 중 — 수치가 더 올라갈 수 있음">⚠잠정</span>`
+                 : ` <span class="bdg conf" title="전환 추적 기간이 지나 확정된 달(일별 데이터 집계)">✔확정</span>`)}</div>
        ${metricLines(s.all, s.allPrev, true)}
      </div>`
   ].concat(s.per.map(({c,t,p},i)=>{
@@ -1228,7 +1554,7 @@ function renderReportDoc(months){
     const share = s.all.cost>0 ? t.cost/s.all.cost*100 : 0;
     return `<div class="rep-blk">
       <div class="rep-h"><span class="dot" style="background:${c.color}"></span>${i===0?"②":"③"} ${c.name}
-        <span class="sup">광고비 비중 ${pct(share,1)}</span></div>
+        <span class="sup" title="전체 광고비 중 이 채널이 차지하는 비율">광고비 점유율 ${pct(share,1)}</span></div>
       ${metricLines(t,p,true)}
     </div>`;
   })).join("");
@@ -1279,7 +1605,11 @@ function renderReportDoc(months){
        <div class="rep-t">쿠팡 광고 데이터 ${ym} 공유드립니다.</div>
        <div class="muted" style="font-size:12.5px;margin-bottom:6px">${s.b.first} ~ ${s.b.last} · 전월(${prevYm(ym)}) 대비 증감 표시</div>
        ${blocks}${topHtml}${flHtml}
-       <div class="rep-note">※ 이 리포트의 매출은 모두 <b>쿠팡 광고 어드민의 광고전환매출</b>(클릭 후 ${ATTRIB()}일 내 발생분, 취소·반품 반영 전) 기준이며 실판매금액이 아닙니다.
+       <div class="rep-note">${s.all.maema!=null
+         ? `※ <b>매마 매출</b>은 '월간보고' 탭에 입력한 <b>자사 인식 매출</b>이고, 광고비·광고전환매출·노출·클릭·주문수는 같은 탭의 <b>어드민 확정치</b>입니다.
+            광고비 비중 = 광고비÷매마 매출, 광고 의존도 = 광고전환매출÷매마 매출.<br>`
+         : `※ 이 달은 '월간보고' 탭에 매마 매출이 아직 입력되지 않아 일별 광고 데이터로 집계했습니다.<br>`}
+       ※ 광고전환매출은 <b>쿠팡 광고 어드민 기준</b>(클릭 후 ${ATTRIB()}일 내 발생분, 취소·반품 반영 전)이며 매마 매출과 성격이 달라 비율로만 해석하세요.
        ${prov?`<br>※ 이 달은 <b>전환 추적 ${ATTRIB()}일 구간</b>이 포함돼 전환매출·ROAS·주문수가 이후 더 올라갈 수 있습니다(잠정).`:""}</div>
      </div>`;
   $("#repMonth").addEventListener("change",e=>{ STATE.reportYm=e.target.value; renderReportDoc(months); });
@@ -1383,6 +1713,12 @@ async function load(){
          <br><br>· 인터넷 연결 확인<br>· 크롬/엣지에서 열었는지 확인<br>· 시트 게시 상태(전체 문서) 확인</div>`);
     $("#footnote").innerHTML=""; return;
   }
+  // '월간보고' 탭 (어드민 확정치 + 매마 매출) — 실패해도 리포트는 계속 표시
+  if(CONFIG.MONTHLY_CSV){
+    try{ MONTHLY=parseMonthly(await fetchCSV(CONFIG.MONTHLY_CSV)); }
+    catch(e){ console.warn("월간보고 탭 로드 실패",e); MONTHLY={byKey:{},months:[],failed:true}; }
+  }
+  buildFactors();   // 월 확정치 보정 계수 (일별 행에 부착)
   let min=null,max=null,n=0;
   for(const c of CONFIG.CHANNELS){
     for(const r of (RAW[c.id]||[])){ n++; if(!min||r.key<min)min=r.key; if(!max||r.key>max)max=r.key; }
