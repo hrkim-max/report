@@ -521,7 +521,7 @@ function rangeCoversMonth(ym){
   return (!STATE.startDate||STATE.startDate<=b.first) && (!STATE.endDate||STATE.endDate>=b.last);
 }
 // 확정치를 써도 되는 조건: 브랜드·캠페인 필터가 없어야 함(확정치는 채널 단위 값)
-function canUseConfirmed(){ return STATE.brand==="all" && STATE.camp==="all"; }
+function canUseConfirmed(){ return STATE.camp==="all"; }
 
 /* ============================================================
    상태
@@ -772,18 +772,15 @@ function setRangeBar(){
 function setFilterBar(){
   const bar=$("#filterBar"); if(!bar) return;
   if(!DATA_MIN){ bar.innerHTML=""; return; }
-  // 선택 가능한 브랜드/캠페인 목록 (현재 채널·기간 기준으로 동적 산출)
-  const forBrand=filterRows({brand:"all",camp:"all"});
-  const brands=[...new Set(forBrand.map(r=>r.brand))].sort();
-  if(STATE.brand!=="all" && !brands.includes(STATE.brand)) STATE.brand="all";
+  // 선택 가능한 캠페인 목록 (현재 채널·기간 기준으로 동적 산출)
   const forCamp=filterRows({camp:"all"});
   const camps=[...new Set(forCamp.map(r=>r.camp))].sort();
   if(STATE.camp!=="all" && !camps.includes(STATE.camp)) STATE.camp="all";
   const a14=STATE.attr==="14";
   bar.innerHTML=
     `<span class="fb-label">🔎 필터</span>
-     <select id="fbBrand"><option value="all">브랜드 전체 (${brands.length})</option>${
-       brands.map(b=>`<option value="${escapeHtml(b)}"${STATE.brand===b?" selected":""}>${escapeHtml(b)}</option>`).join("")}</select>
+     <select id="fbChannel"><option value="all">판매 채널 전체 (로켓+윙)</option>${
+       CONFIG.CHANNELS.map(c=>`<option value="${c.id}"${STATE.ch===c.id?" selected":""}>${c.name}</option>`).join("")}</select>
      <select id="fbCamp"><option value="all">캠페인 전체 (${camps.length})</option>${
        camps.map(c=>`<option value="${escapeHtml(c)}"${STATE.camp===c?" selected":""}>${escapeHtml(c)}</option>`).join("")}</select>
      <span class="fb-label" style="margin-left:6px">전환 기준</span>
@@ -799,7 +796,9 @@ function setFilterBar(){
      </div>`:""}
      <span class="fb-note">전환매출·주문수·판매수는 <b>클릭 후 ${ATTRIB()}일</b> 내 발생분 기준입니다.${
        correcting()?`<br><span class="bdg conf">보정</span> ${MONTHLY.months.join(", ")} 은 <b>월간보고 확정치</b>에 맞춰 집계됩니다.`:""}</span>`;
-  $("#fbBrand").addEventListener("change",e=>{ STATE.brand=e.target.value; STATE.prodSel=null; refresh(); });
+  $("#fbChannel").addEventListener("change",e=>{
+    setChannel(e.target.value);
+  });
   $("#fbCamp").addEventListener("change",e=>{ STATE.camp=e.target.value; STATE.prodSel=null; refresh(); });
   $("#fbAttr").addEventListener("click",e=>{
     const b=e.target.closest("button"); if(!b) return;
@@ -811,6 +810,14 @@ function setFilterBar(){
   });
 }
 
+/* 판매 채널 전환 — 상단 세그먼트와 필터바 select 어디서 바꿔도 같은 경로를 탑니다 */
+function setChannel(id){
+  STATE.ch=id;
+  STATE.camp="all";                                   // 캠페인은 채널 종속이라 초기화
+  STATE.prodSel=null; STATE.prodSearch=""; STATE.prodOnlySel=false;
+  [...$("#chSeg").children].forEach(x=>x.classList.toggle("on", x.dataset.c===id));
+  refresh();
+}
 function refresh(){
   if(STATE.mode==="report"){ showReport(); return; }
   $("#chSeg").style.display=""; $("#rangeBar").style.display=""; $("#filterBar").style.display="";
@@ -1181,8 +1188,8 @@ function renderChannelPanel(){
       <span class="muted">· 합계 광고비 ${won(sum)} · 합계 전환매출 ${won(sumRev)} · 합계 ROAS ${sum>0?pct(sumRev/sum*100):"—"}</span></div>` : "";
 
   el.innerHTML=`<div class="panel">
-    <h2>채널 비교 <span class="muted" style="font-size:12px">· 로켓광고 vs 윙광고 ${STATE.brand!=="all"?`· ${escapeHtml(STATE.brand)}`:""}${rangeActive()?" · 기간 적용":""}</span></h2>
-    <p class="hint">상단 채널 선택과 무관하게 <b>두 채널을 항상 비교</b>합니다(브랜드·기간 필터는 적용, 캠페인 필터는 미적용).</p>
+    <h2>채널 비교 <span class="muted" style="font-size:12px">· 로켓광고 vs 윙광고${rangeActive()?" · 기간 적용":""}</span></h2>
+    <p class="hint">판매 채널 선택과 무관하게 <b>두 채널을 항상 비교</b>합니다(기간 필터는 적용, 캠페인 필터는 미적용).</p>
     ${shareBar}
     <div class="chgrid">${boxes}</div>
     <div class="charts">
@@ -2025,9 +2032,7 @@ $("#chSeg").innerHTML =
   CONFIG.CHANNELS.map(c=>`<button data-c="${c.id}">${c.name}</button>`).join("");
 $("#chSeg").addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
-  STATE.ch=b.dataset.c; STATE.camp="all"; STATE.prodSel=null; STATE.prodSearch=""; STATE.prodOnlySel=false;
-  [...$("#chSeg").children].forEach(x=>x.classList.toggle("on",x===b));
-  refresh();
+  setChannel(b.dataset.c);
 });
 $("#periodSeg").addEventListener("click",e=>{
   const b=e.target.closest("button"); if(!b) return;
