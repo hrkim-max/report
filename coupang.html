@@ -904,12 +904,11 @@ function render(){
   }
   // 매마 매출(일별 탭)을 기간별로 붙임 — 일별/주간/월별 모두 적용
   const mByP=maemaByPeriod(STATE.mode);
-  for(const g of groups){
-    if(mByP[g.key]==null) continue;
-    g.maema=mByP[g.key];
+  if(hasMaema()) for(const g of groups){
     const sp=periodSpan(g.key, STATE.mode);
-    // 이 기간이 매마 입력 구간을 벗어나면 부분 합계 → 비율 계산 금지
-    g.maemaFull = maemaCovers(sp.from, sp.to);
+    g.maemaFull = maemaCovers(sp.from, sp.to);   // 이 기간의 달이 모두 마감됐는가
+    if(mByP[g.key]!=null) g.maema=mByP[g.key];
+    else if(g.maemaFull) g.maema=0;              // 마감된 기간인데 발주 없음 = 0원
   }
 
   for(const g of groups){
@@ -1028,9 +1027,9 @@ function render(){
   const detailMax=CONFIG.DETAIL_MAX[STATE.mode]||8;
   // 매마 매출 컬럼: 일별 탭이 있으면 모든 뷰에서, 없으면 월별 뷰에서만
   const showMaema = hasMaema() || (STATE.mode==="month" && MONTHLY && MONTHLY.months.length>0);
-  // 광고비 비중은 월별 뷰에서만 — 매마 매출(특히 로켓 매입)은 발주 시점에 몰려 잡혀서
-  // 주·일 단위로 나누면 12%~260%처럼 심하게 튀어 해석이 불가능합니다.
-  const showShare = showMaema && STATE.mode==="month";
+  // 광고비 비중은 모든 뷰에서 표시(일별 매마 탭이 있으므로 일/주 단위도 합산 가능).
+  // 단 매마가 마감되지 않은 달이 걸친 기간은 행 단위로 '—' 처리됩니다(g.adShare).
+  const showShare = showMaema;
   const rowsShown = STATE.detailAll ? view : view.slice(0, detailMax);
   const moreBtn = view.length>detailMax
     ? `<button id="detailToggle" style="font-size:12.5px;padding:6px 12px">${STATE.detailAll?`최근 ${detailMax}${unitTxt}만 보기`:`전체 ${view.length}${unitTxt} 보기`}</button>` : "";
@@ -1042,7 +1041,8 @@ function render(){
     </div>
     <p class="hint">ROAS = <b>광고전환매출</b>÷광고비 · CTR = 클릭÷노출 · CPC = 광고비÷클릭 · 전환율 = 주문÷클릭 · CPA = 광고비÷주문${showMaema?` · <b>광고비 비중</b> = 광고비÷매마 매출`:""}<br>
       <span class="muted">※ 광고전환매출은 쿠팡 광고 어드민의 전환매출(취소·반품 반영 전)이며, 자사 인식 매출(매마)과는 다릅니다.
-      ${showMaema?`<span class="bdg conf">✔확정</span> 달은 '월간보고' 탭의 어드민 확정치로 집계합니다.`:""}</span></p>
+      ${showMaema?`<span class="bdg conf">✔확정</span> 달은 '월간보고' 탭의 어드민 확정치로 집계합니다.`:""}
+      ${(showShare && STATE.mode!=="month")?`<br>※ <b>매마 매출은 매입 발주 시점에 몰려 잡힙니다</b>(로켓은 발주일에만 금액 발생). 그래서 ${STATE.mode==="day"?"일":"주"} 단위 광고비 비중은 크게 출렁일 수 있으니, 추세는 <b>월별 뷰</b>로 함께 확인하세요.`:""}</span></p>
     <div class="tblwrap"><table>
       <thead><tr>
         <th>기간</th>${showMaema?`<th title="자사에서 매출로 인식하는 금액 ('매마 일별 매출액' 탭)">매마 매출</th>`:""}<th>광고비</th>
@@ -1075,10 +1075,11 @@ function render(){
     </tr>`;
   }
   const s=derive(rowsShown.reduce((a,g)=>{a.cost+=g.cost;a.rev+=g.rev;a.ord+=g.ord;a.qty+=g.qty;a.imp+=g.imp;a.clk+=g.clk;
-    if(g.maema!=null){
-      a.maema=(a.maema||0)+g.maema;
-      if(g.maemaFull!==false){ a.maemaF=(a.maemaF||0)+g.maema; a.mCost=(a.mCost||0)+g.cost; }  // 비율은 온전한 기간만
-    } return a;},blank()));
+    if(g.maema!=null) a.maema=(a.maema||0)+g.maema;
+    // 합계 비율은 '매마가 마감된 기간'의 매마·광고비를 같은 범위로 더해 계산
+    // (발주가 없어 매마 0원인 날도 광고비는 포함해야 기간 전체 비율이 맞습니다)
+    if(g.maemaFull){ a.maemaF=(a.maemaF||0)+(g.maema||0); a.mCost=(a.mCost||0)+g.cost; }
+    return a;},blank()));
   const sShare = (showShare && s.maemaF) ? s.mCost/s.maemaF*100 : null;   // 매마가 온전한 기간만으로 계산
   html+=`</tbody><tfoot><tr>
       <td>합계</td>
