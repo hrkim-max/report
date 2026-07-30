@@ -201,6 +201,10 @@ const CONFIG = {
   // 채널 블록이 가로로 나열되고, 각 행의 '판매 센터' 칸(로켓/윙)으로 채널을 구분합니다.
   MONTHLY_CSV: PUB+"267096483",
 
+  // '매마 일별 매출액' 탭 — 자사 인식 매출의 일별 값(채널 블록 가로 배치: 채널·년/월/일·매출).
+  // 이 탭이 있으면 어떤 기간을 골라도 매마 매출/광고비 비중이 계산됩니다.
+  MAEMA_CSV: PUB+"688792421",
+
   // 전환 어트리뷰션 기본 기준 ("14" = 총 전환매출액(14일), "1" = 1일)
   ATTR_DEFAULT: "14",
 
@@ -318,6 +322,95 @@ function parseCoupang(text, chId){
    구조: 한 행에 채널 블록이 가로로 나열(년/월, 판매 센터, 매마 매출, 어드민 …).
    '판매 센터' 칸(로켓/윙)으로 채널을 구분합니다. */
 const numOrNull = s => { s=String(s??"").trim(); return s===""?null:num(s); };
+// 시트의 채널 표기(로켓/윙 등) → 채널 id
+function channelOf(s){
+  s=String(s||"").trim().toLowerCase();
+  if(!s) return null;
+  const c=CONFIG.CHANNELS.find(x=>(x.alias||[]).some(a=>a.toLowerCase()===s)
+    || x.name.toLowerCase()===s || (x.short||"").toLowerCase()===s);
+  return c?c.id:null;
+}
+
+/* ---- '매마 일별 매출액' 탭 → 일별 자사 인식 매출 ----
+   구조: 채널 블록이 가로로 나열 (채널, 년/월/일, 매출). 값이 빈 날은 0으로 취급. */
+let MAEMA=null;   // {byKey:{"YYYY-MM-DD|ch":금액}, byMonth:{"YYYY-MM|ch":금액}, min, max, n}
+function parseMaemaDaily(text){
+  const rows=[]; parseCSVRows(text, r=>rows.push(r.slice()));
+  const h=rows.findIndex(r=>r.some(c=>String(c).trim()==="채널"));
+  if(h<0) return {byKey:{},byMonth:{},n:0};
+  const hdr=rows[h].map(c=>String(c).trim());
+  const starts=[]; hdr.forEach((c,i)=>{ if(c==="채널") starts.push(i); });
+  const blocks=starts.map(s=>{
+    const end = starts.find(x=>x>s) ?? hdr.length;
+    const col=(...names)=>{
+      for(const n of names){ for(let j=s;j<end;j++) if(hdr[j]===n) return j; }
+      for(const n of names){ for(let j=s;j<end;j++) if(hdr[j].indexOf(n)>=0) return j; }
+      return -1; };
+    return { ch:s, date:col("년/월/일","날짜","일자"), amt:col("매출","금액","매마") };
+  });
+  const byKey={}, byMonth={}; let min=null,max=null,n=0;
+  for(let i=h+1;i<rows.length;i++){
+    const r=rows[i]; if(!r) continue;
+    for(const b of blocks){
+      const cid=channelOf(r[b.ch]); if(!cid) continue;
+      const ds=String(r[b.date]||"").trim().replace(/[./]/g,"-");
+      const m=ds.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if(!m) continue;
+      const v=b.amt>=0?numOrNull(r[b.amt]):null;
+      if(v==null) continue;                       // 빈 칸은 스킵(0원 입력과 구분 없음 — 합산엔 영향 없음)
+      const key=`${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+      byKey[`${key}|${cid}`]=(byKey[`${key}|${cid}`]||0)+v;
+      const ym=key.slice(0,7);
+      byMonth[`${ym}|${cid}`]=(byMonth[`${ym}|${cid}`]||0)+v;
+      if(!min||key<min) min=key;
+      if(!max||key>max) max=key;
+      n++;
+    }
+  }
+  return {byKey, byMonth, min, max, n};
+}
+const hasMaema = () => !!(MAEMA && MAEMA.n>0);
+/* 매마 매출이 '마감된' 달인가 —
+   로켓 매입은 발주일에만 금액이 찍혀 빈 날이 많으므로(빈칸 = 0원, 미입력이 아님)
+   일별 탭의 마지막 날짜로 판단하면 안 됩니다. '월간보고' 탭에 그 달 매마가
+   입력돼 있으면 마감된 것으로 봅니다. */
+function nextYm(ym){ const [y,m]=ym.split("-").map(Number); const d=new Date(y,m,1);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+function maemaMonthClosed(ym, chSel){
+  const ids=(chSel||STATE.ch)==="all" ? CONFIG.CHANNELS.map(c=>c.id) : [chSel||STATE.ch];
+  if(MONTHLY && MONTHLY.months.length)
+    return ids.every(id=>{ const cf=confirmedMonth(id,ym); return cf && cf.maema!=null; });
+  // 월간보고 탭이 없으면 일별 입력 구간으로 대체 판단
+  const b=monthBounds(ym);
+  return hasMaema() && MAEMA.min<=b.first && MAEMA.max>=b.last;
+}
+// [from,to] 가 걸치는 모든 달이 마감돼 있어야 비율 비교가 유효
+function maemaCovers(from,to){
+  if(!hasMaema()) return false;
+  let ym=from.slice(0,7); const last=to.slice(0,7);
+  let guard=0;
+  while(ym<=last && guard++<600){ if(!maemaMonthClosed(ym)) return false; ym=nextYm(ym); }
+  return true;
+}
+// 기간 키의 실제 날짜 범위
+function periodSpan(key, mode){
+  if(mode==="month") { const b=monthBounds(key); return {from:b.first, to:b.last}; }
+  if(mode==="day")   return {from:key, to:key};
+  return {from:key, to:dateShift(key,6)};        // 주간: 시작일 ~ +6일
+}
+// 기간(포함)·채널 기준 매마 매출 합계
+function maemaSum(s, e, chSel){
+  if(!hasMaema()) return null;
+  const ids = (chSel||STATE.ch)==="all" ? CONFIG.CHANNELS.map(c=>c.id) : [chSel||STATE.ch];
+  let sum=0, any=false;
+  for(const k of Object.keys(MAEMA.byKey)){
+    const i=k.indexOf("|"); const d=k.slice(0,i), c=k.slice(i+1);
+    if(!ids.includes(c)) continue;
+    if(s && d<s) continue;
+    if(e && d>e) continue;
+    sum+=MAEMA.byKey[k]; any=true;
+  }
+  return any?sum:null;
+}
 let MONTHLY=null;
 function parseMonthly(text){
   const rows=[]; parseCSVRows(text, r=>rows.push(r.slice()));
@@ -340,11 +433,7 @@ function parseMonthly(text){
       qty:col("판매수","판매 수"), ord:col("주문수","주문 수"),
       memo:col("메모","비고") };
   });
-  const chOf=(s)=>{ s=String(s||"").trim().toLowerCase();
-    if(!s) return null;
-    const c=CONFIG.CHANNELS.find(x=>(x.alias||[]).some(a=>a.toLowerCase()===s)
-      || x.name.toLowerCase()===s || (x.short||"").toLowerCase()===s);
-    return c?c.id:null; };
+  const chOf=channelOf;
   const byKey={}, months=new Set();
   for(let i=h+1;i<rows.length;i++){
     const r=rows[i]; if(!r) continue;
@@ -710,6 +799,79 @@ function refresh(){
   setRangeBar(); setFilterBar(); render();
 }
 
+/* ---- 선택 기간의 매마 매출 ----
+   '매마 일별 매출액' 탭이 있으면 일별로 정확히 합산(기간 제약 없음).
+   없으면 '월간보고' 탭의 월 값으로 대체(기간에 온전히 포함된 달만). */
+function maemaForRange(){
+  const s=STATE.startDate||DATA_MIN, e=STATE.endDate||DATA_MAX;
+  // 비율의 분모·분자를 같은 범위로 맞추기 위해 광고비·전환매출은 항상 '채널 전체'(브랜드·캠페인 필터 제외) 기준
+  const chLevel = total(filterRows({brand:"all", camp:"all"}));
+  if(hasMaema()){
+    const maema=maemaSum(s,e,STATE.ch);
+    if(maema==null) return {daily:true, maema:null, adShare:null, adDep:null, s, e, noData:true};
+    // 매마 탭에 값이 들어있는 실제 구간(기간이 그보다 넓으면 안내)
+    // 기간 안에서 매마가 아직 마감되지 않은 달 목록
+    const open=[]; let ym=s.slice(0,7); const last=e.slice(0,7); let guard=0;
+    while(ym<=last && guard++<600){ if(!maemaMonthClosed(ym)) open.push(ym); ym=nextYm(ym); }
+    // 마감 안 된 달이 섞이면 비율을 내지 않습니다
+    // (예: 광고비는 30일치인데 매마는 1일치 → 4700% 같은 무의미한 값이 나옴)
+    const ok = open.length===0 && maema>0;
+    return { daily:true, maema, cost:chLevel.cost, rev:chLevel.rev,
+             adShare: ok ? chLevel.cost/maema*100 : null,
+             adDep:   ok ? chLevel.rev/maema*100  : null,
+             s, e, open, mismatch:!ok && maema>0 };
+  }
+  if(!MONTHLY || !MONTHLY.months.length) return null;
+  let maema=0, cost=0, rev=0;
+  const used=[], noInput=[], partial=[];
+  for(const ym of MONTHLY.months){
+    const b=monthBounds(ym);
+    if(e<b.first || s>b.last) continue;
+    if(!(s<=b.first && e>=b.last)){ partial.push(ym); continue; }
+    const cf=confirmedFor(ym, STATE.ch);
+    if(!cf || cf.maema==null){ noInput.push(ym); continue; }
+    maema+=cf.maema; cost+=cf.cost||0; rev+=cf.rev||0; used.push(ym);
+  }
+  return {daily:false, maema, cost, rev,
+          adShare: maema>0 ? cost/maema*100 : null,
+          adDep:   maema>0 ? rev/maema*100 : null, used, noInput, partial};
+}
+function maemaBasisNote(m){
+  if(!m) return "";
+  if(m.daily){
+    if(m.noData) return `<span class="muted" style="font-size:11px">(이 기간 매마 매출 미입력)</span>`;
+    return `<span class="muted" style="font-size:11px">(일별 · ${m.s} ~ ${m.e})</span>`
+      + (m.open&&m.open.length
+         ? ` <span class="bdg lo" title="${m.open.join(", ")} 은 매마 매출이 아직 마감되지 않아 일부만 잡혀 있습니다">${m.open.join(", ")} 미마감</span>` : "");
+  }
+  if(m.used.length){
+    const span = m.used.length===1 ? m.used[0] : `${m.used[0]}~${m.used[m.used.length-1]} ${m.used.length}개월`;
+    const extra = (m.partial.length||m.noInput.length)
+      ? ` <span class="bdg lo" title="${[m.partial.length?`${m.partial.join(", ")}: 기간에 일부만 포함돼 제외`:"",
+          m.noInput.length?`${m.noInput.join(", ")}: 매마 매출 미입력`:""].filter(Boolean).join(" / ")}">일부 제외</span>` : "";
+    return `<span class="muted" style="font-size:11px">(월 단위 · ${span})</span>${extra}`;
+  }
+  if(m.partial.length) return `<span class="muted" style="font-size:11px">(월 단위 값 — 기간에 온전히 포함된 달 없음)</span>`;
+  if(m.noInput.length) return `<span class="muted" style="font-size:11px">(${m.noInput.join(", ")} 미입력)</span>`;
+  return `<span class="muted" style="font-size:11px">(해당 기간 데이터 없음)</span>`;
+}
+/* 기간별(일/주/월) 매마 매출 — 상세 표·차트용 */
+function maemaByPeriod(mode){
+  const out={};
+  if(!hasMaema()) return out;
+  const s=STATE.startDate, e=STATE.endDate;
+  const ids = STATE.ch==="all" ? CONFIG.CHANNELS.map(c=>c.id) : [STATE.ch];
+  for(const k of Object.keys(MAEMA.byKey)){
+    const i=k.indexOf("|"); const d=k.slice(0,i), c=k.slice(i+1);
+    if(!ids.includes(c)) continue;
+    if(s && d<s) continue;
+    if(e && d>e) continue;
+    const pk=periodOf(d,mode).k;
+    out[pk]=(out[pk]||0)+MAEMA.byKey[k];
+  }
+  return out;
+}
+
 /* ============================================================
    메인 렌더
    ============================================================ */
@@ -740,12 +902,22 @@ function render(){
       derive(g);
     }
   }
+  // 매마 매출(일별 탭)을 기간별로 붙임 — 일별/주간/월별 모두 적용
+  const mByP=maemaByPeriod(STATE.mode);
+  for(const g of groups){
+    if(mByP[g.key]==null) continue;
+    g.maema=mByP[g.key];
+    const sp=periodSpan(g.key, STATE.mode);
+    // 이 기간이 매마 입력 구간을 벗어나면 부분 합계 → 비율 계산 금지
+    g.maemaFull = maemaCovers(sp.from, sp.to);
+  }
+
   for(const g of groups){
     // 보정된 구간은 확정치에 맞춰졌으므로 '잠정' 경고를 띄우지 않습니다
     g.provisional = !g.confirmed && !g.corr && provStart && g.lastKey && g.lastKey>=provStart;
     g.partialMonth = (STATE.mode==="month" && !g.confirmed && !rangeCoversMonth(g.key));
-    // 광고비 비중 = 광고비 ÷ 매마 매출
-    g.adShare = (g.maema && g.cost!=null) ? g.cost/g.maema*100 : null;
+    // 광고비 비중 = 광고비 ÷ 매마 매출 (매마가 온전히 입력된 기간에서만)
+    g.adShare = (g.maema && g.maemaFull!==false && g.cost!=null) ? g.cost/g.maema*100 : null;
   }
 
   const chartMax=CONFIG.CHART_MAX[STATE.mode]||8;
@@ -772,7 +944,17 @@ function render(){
   /* --- KPI --- */
   const periodLbl = rangeActive()?"선택 기간":"전체 기간";
   const chLbl = STATE.ch==="all" ? "로켓+윙" : chName(STATE.ch);
-  const cards=[
+  const mm=maemaForRange();
+  const cards=[];
+  if(mm){
+    cards.push({lab:`<span class="dot" style="background:var(--good)"></span>매마 매출 <span class="muted" style="font-size:11px">(자사 인식)</span> ${maemaBasisNote(mm)}`,
+                val: mm.maema!=null?won(mm.maema):"—"});
+    cards.push({lab:`광고비 비중 <span class="muted" style="font-size:11px">(광고비/매마 매출)</span>${
+                  canUseConfirmed()?"":` <span class="bdg lo" title="매마 매출·광고비 모두 채널 전체 값입니다(브랜드·캠페인 필터 미적용)">채널 전체</span>`}${
+                  mm.mismatch?` <span class="bdg hi" title="선택 기간(${mm.s} ~ ${mm.e})에 매마 매출이 아직 마감되지 않은 달이 포함돼 비율을 낼 수 없습니다(광고비는 전 기간, 매마는 일부만 잡혀 값이 왜곡됨). '월간보고' 탭에 해당 월 매마 매출을 입력하거나 기간을 마감된 달로 맞춰주세요.">기간 불일치</span>`:""}`,
+                val: mm.adShare==null?"—":pct(mm.adShare,1)});
+  }
+  cards.push(...[
     {lab:`<span class="dot" style="background:var(--cost)"></span>총 광고비 <span class="muted" style="font-size:11px">(${periodLbl}·${chLbl})</span>`, val:won(t.cost)},
     {lab:`<span class="dot" style="background:var(--rev)"></span>광고전환매출 <span class="muted" style="font-size:11px">(${ATTRIB()}일)</span>`, val:won(t.rev)},
     {lab:`<span class="dot" style="background:var(--roas)"></span>ROAS <span class="muted" style="font-size:11px">(전환매출/광고비)</span>`, val:t.roas==null?"—":pct(t.roas)},
@@ -785,7 +967,9 @@ function render(){
     {lab:`CPA <span class="muted" style="font-size:11px">(광고비/주문)</span>`, val:t.cpa==null?"—":won(t.cpa)},
     {lab:`객단가 <span class="muted" style="font-size:11px">(전환매출/주문)</span>`, val:t.aov==null?"—":won(t.aov)},
     {lab:`판매수량`, val:cnt(t.qty)},
-  ];
+  ]);
+  if(mm && mm.adDep!=null)
+    cards.push({lab:`광고 의존도 <span class="muted" style="font-size:11px">(광고전환매출/매마 매출)</span>`, val:pct(mm.adDep,1)});
   html+=`<div class="cards">`+cards.map(x=>`<div class="card"><div class="lab">${x.lab}</div><div class="val">${x.val}</div></div>`).join("")+`</div>`;
 
   /* --- 채널 비교 --- */
@@ -807,6 +991,7 @@ function render(){
         <div class="legend">
           <span><span class="dot" style="background:var(--cost)"></span>광고비</span>
           <span><span class="dot" style="background:var(--rev)"></span>광고전환매출</span>
+          ${hasMaema()?`<span><span class="dot" style="background:var(--good)"></span>매마 매출</span>`:""}
         </div>
         <div class="chartbox" id="chartRev"></div>
       </div>
@@ -841,8 +1026,11 @@ function render(){
 
   /* --- 기간 상세 표 --- */
   const detailMax=CONFIG.DETAIL_MAX[STATE.mode]||8;
-  // 매마 매출 컬럼은 월별 뷰에서만 (월간보고 탭이 월 단위 값이라서)
-  const showMaema = (STATE.mode==="month" && MONTHLY && MONTHLY.months.length>0);
+  // 매마 매출 컬럼: 일별 탭이 있으면 모든 뷰에서, 없으면 월별 뷰에서만
+  const showMaema = hasMaema() || (STATE.mode==="month" && MONTHLY && MONTHLY.months.length>0);
+  // 광고비 비중은 월별 뷰에서만 — 매마 매출(특히 로켓 매입)은 발주 시점에 몰려 잡혀서
+  // 주·일 단위로 나누면 12%~260%처럼 심하게 튀어 해석이 불가능합니다.
+  const showShare = showMaema && STATE.mode==="month";
   const rowsShown = STATE.detailAll ? view : view.slice(0, detailMax);
   const moreBtn = view.length>detailMax
     ? `<button id="detailToggle" style="font-size:12.5px;padding:6px 12px">${STATE.detailAll?`최근 ${detailMax}${unitTxt}만 보기`:`전체 ${view.length}${unitTxt} 보기`}</button>` : "";
@@ -857,8 +1045,8 @@ function render(){
       ${showMaema?`<span class="bdg conf">✔확정</span> 달은 '월간보고' 탭의 어드민 확정치로 집계합니다.`:""}</span></p>
     <div class="tblwrap"><table>
       <thead><tr>
-        <th>기간</th>${showMaema?`<th title="'월간보고' 탭의 자사 인식 매출">매마 매출</th>`:""}<th>광고비</th>
-        ${showMaema?`<th title="광고비 ÷ 매마 매출">광고비 비중</th>`:""}<th>광고전환매출</th><th>ROAS</th>
+        <th>기간</th>${showMaema?`<th title="자사에서 매출로 인식하는 금액 ('매마 일별 매출액' 탭)">매마 매출</th>`:""}<th>광고비</th>
+        ${showShare?`<th title="광고비 ÷ 매마 매출">광고비 비중</th>`:""}<th>광고전환매출</th><th>ROAS</th>
         <th>노출수</th><th>클릭수</th><th title="클릭수 ÷ 노출수">CTR</th><th title="광고비 ÷ 클릭수">CPC</th>
         <th>주문수</th><th title="주문수 ÷ 클릭수">전환율</th><th title="광고비 ÷ 주문수">CPA</th><th>판매수량</th>
       </tr></thead><tbody>`;
@@ -870,9 +1058,10 @@ function render(){
         : (g.partialMonth ? ` <span class="bdg lo" title="선택 기간에 이 달의 일부만 포함됨">부분</span>` : ""))));
     html+=`<tr>
       <td>${lbl}</td>
-      ${showMaema?`<td class="num">${g.maema==null?'<span class="muted">—</span>':won(g.maema)}</td>`:""}
+      ${showMaema?`<td class="num">${g.maema==null?'<span class="muted">—</span>'
+         :(won(g.maema)+(g.maemaFull===false?` <span class="bdg lo" title="매마 매출이 아직 마감되지 않은 달이 포함된 기간입니다(부분 합계)">부분</span>`:""))}</td>`:""}
       <td class="num">${won(g.cost)}</td>
-      ${showMaema?`<td class="num">${g.adShare==null?'<span class="muted">—</span>':`<span class="${g.adShare<=25?'pos':'neg'}">${pct(g.adShare,1)}</span>`}</td>`:""}
+      ${showShare?`<td class="num">${g.adShare==null?'<span class="muted">—</span>':`<span class="${g.adShare<=25?'pos':'neg'}">${pct(g.adShare,1)}</span>`}</td>`:""}
       <td class="num">${won(g.rev)}</td>
       <td class="num">${g.roas==null?'<span class="muted">—</span>':`<span class="${g.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${pct(g.roas)}</span>`}</td>
       <td class="num muted">${cnt(g.imp)}</td>
@@ -886,13 +1075,16 @@ function render(){
     </tr>`;
   }
   const s=derive(rowsShown.reduce((a,g)=>{a.cost+=g.cost;a.rev+=g.rev;a.ord+=g.ord;a.qty+=g.qty;a.imp+=g.imp;a.clk+=g.clk;
-    if(g.maema!=null){ a.maema=(a.maema||0)+g.maema; a.mCost=(a.mCost||0)+g.cost; } return a;},blank()));
-  const sShare = s.maema ? s.mCost/s.maema*100 : null;   // 매마 있는 달만으로 계산
+    if(g.maema!=null){
+      a.maema=(a.maema||0)+g.maema;
+      if(g.maemaFull!==false){ a.maemaF=(a.maemaF||0)+g.maema; a.mCost=(a.mCost||0)+g.cost; }  // 비율은 온전한 기간만
+    } return a;},blank()));
+  const sShare = (showShare && s.maemaF) ? s.mCost/s.maemaF*100 : null;   // 매마가 온전한 기간만으로 계산
   html+=`</tbody><tfoot><tr>
       <td>합계</td>
       ${showMaema?`<td class="num">${s.maema==null?"—":won(s.maema)}</td>`:""}
       <td class="num">${won(s.cost)}</td>
-      ${showMaema?`<td class="num">${sShare==null?"—":pct(sShare,1)}</td>`:""}
+      ${showShare?`<td class="num">${sShare==null?"—":pct(sShare,1)}</td>`:""}
       <td class="num">${won(s.rev)}</td><td class="num">${s.roas==null?"—":pct(s.roas)}</td>
       <td class="num">${cnt(s.imp)}</td><td class="num">${cnt(s.clk)}</td>
       <td class="num">${s.ctr==null?"—":pct(s.ctr,2)}</td><td class="num">${s.cpc==null?"—":won(s.cpc)}</td>
@@ -906,7 +1098,10 @@ function render(){
   barChart($("#chartRev"), labels, [
     {name:"광고비", color:"var(--cost)", values:recent.map(g=>g.cost)},
     {name:"광고전환매출", color:"var(--rev)", values:recent.map(g=>g.rev)},
-  ], {fmt:wonShort});
+  ].concat(hasMaema()?[{name:"매마 매출", color:"var(--good)",
+      // 부분 입력 구간은 낮게 찍혀 오해를 부르므로 막대를 그리지 않습니다
+      values:recent.map(g=>(g.maema==null||g.maemaFull===false)?null:g.maema)}]:[]),
+  {fmt:wonShort});
   lineChart($("#chartRoas"), labels, [
     {name:"ROAS", color:"var(--roas)", values:recent.map(g=>g.roas)},
   ], {fmt:v=>Math.round(v)+"%", unit:"%"});
@@ -999,12 +1194,22 @@ function renderMaemaPanel(){
       : "";
     return;
   }
-  const months=[...MONTHLY.months].reverse();
+  // '월간보고' 월 ∪ '매마 일별' 월
+  const mset=new Set(MONTHLY.months);
+  if(hasMaema()) for(const k of Object.keys(MAEMA.byMonth)) mset.add(k.slice(0,k.indexOf("|")));
+  const months=[...mset].sort().reverse();
   const rowsHtml=[];
   // T.costM/revM = 매마 매출이 입력된 달만의 합 (비율 계산용 — 기간이 어긋나면 비율이 왜곡되므로 분리)
   const T={maema:0,cost:0,rev:0,costM:0,revM:0,anyMaema:false,nM:0,n:0};
   for(const ym of months){
-    const per=CONFIG.CHANNELS.map(c=>({c, d:confirmedMonth(c.id,ym)})).filter(x=>x.d);
+    const per=CONFIG.CHANNELS.map(c=>{
+      const src=confirmedMonth(c.id,ym);
+      const md=hasMaema() ? MAEMA.byMonth[`${ym}|${c.id}`] : null;
+      if(!src && md==null) return null;
+      const d=Object.assign({maema:null,cost:null,rev:null,imp:null,clk:null,qty:null,ord:null}, src||{});
+      if(md!=null) d.maema=md;        // 일별 탭 값 우선
+      return {c,d};
+    }).filter(Boolean);
     if(!per.length) continue;
     const sum={maema:null,cost:null,rev:null,imp:null,clk:null,qty:null};
     for(const {d} of per) for(const k of Object.keys(sum)) if(d[k]!=null) sum[k]=(sum[k]||0)+d[k];
@@ -1061,8 +1266,31 @@ function renderMaemaPanel(){
         <td class="num">${T.cost>0?pct(T.rev/T.cost*100):"—"}</td>
         <td class="num"></td><td class="num"></td><td class="num"></td></tr></tfoot>
     </table></div>
+    ${maemaCrossCheckHTML()}
     ${factorSummaryHTML()}
   </div>`;
+}
+
+/* '매마 일별 매출액' 탭 합계와 '월간보고' 탭 매마 값이 일치하는지 교차 검증 */
+function maemaCrossCheckHTML(){
+  if(!hasMaema() || !MONTHLY) return "";
+  const bad=[], ok=[];
+  for(const k of Object.keys(MONTHLY.byKey)){
+    const cf=MONTHLY.byKey[k]; if(cf.maema==null) continue;
+    const d=MAEMA.byMonth[k];
+    if(d==null) continue;
+    (Math.abs(d-cf.maema)<1 ? ok : bad).push({k, d, m:cf.maema});
+  }
+  if(!bad.length){
+    return ok.length ? `<p class="hint" style="margin:2px 0 12px"><span class="bdg conf">교차 검증</span>
+      '매마 일별 매출액' 탭 합계가 '월간보고' 탭의 매마 매출과 ${ok.length}건 모두 일치합니다.</p>` : "";
+  }
+  return `<div class="banner" style="margin:4px 0 12px"><b>⚠️ 매마 매출 불일치</b> — '매마 일별 매출액' 탭 합계와 '월간보고' 탭 값이 다릅니다. 어느 쪽이 맞는지 확인해 주세요.
+    <ul style="margin:6px 0 0;padding-left:20px">${bad.map(x=>{
+      const [ym,ch]=x.k.split("|");
+      return `<li>${ym} ${chName(ch)} — 일별합 <b>${won(x.d)}</b> vs 월간보고 <b>${won(x.m)}</b> (차이 ${won(x.d-x.m)})</li>`;
+    }).join("")}</ul>
+    <div class="muted" style="margin-top:6px">리포트는 <b>일별 탭</b> 값을 우선 사용합니다.</div></div>`;
 }
 
 /* 보정 계수 요약 — 일별 탭이 확정치 대비 얼마나 낮게 잡혀 있었는지 */
@@ -1452,6 +1680,9 @@ function monthStats(ym){
       t.maema=cf.maema; t.confirmed=true;
       derive(t);
     }
+    // 매마 일별 탭이 있으면 그 합을 우선 사용(월간보고 매마가 비어 있어도 계산됨)
+    const md=maemaSum(bb.first, bb.last, chId);
+    if(md!=null) t.maema=md;
     t.adShare = (t.maema && t.cost!=null) ? t.cost/t.maema*100 : null;  // 광고비 비중
     t.adDep   = (t.maema && t.rev!=null)  ? t.rev/t.maema*100  : null;  // 광고 의존도
     return t;
@@ -1738,6 +1969,11 @@ async function load(){
   if(CONFIG.MONTHLY_CSV){
     try{ MONTHLY=parseMonthly(await fetchCSV(CONFIG.MONTHLY_CSV)); }
     catch(e){ console.warn("월간보고 탭 로드 실패",e); MONTHLY={byKey:{},months:[],failed:true}; }
+  }
+  // '매마 일별 매출액' 탭 — 실패해도 리포트는 계속 표시
+  if(CONFIG.MAEMA_CSV){
+    try{ MAEMA=parseMaemaDaily(await fetchCSV(CONFIG.MAEMA_CSV)); }
+    catch(e){ console.warn("매마 일별 탭 로드 실패",e); MAEMA={byKey:{},byMonth:{},n:0,failed:true}; }
   }
   buildFactors();   // 월 확정치 보정 계수 (일별 행에 부착)
   let min=null,max=null,n=0;
