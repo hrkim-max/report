@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>프로젝트컴퍼니 매출 대시보드</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+  --text:#e6e9ef; --sub:#9aa3b2; --accent:#5b9dff; --accent2:#7ee0c0;
+  --good:#4ade80; --bad:#f87171; --warn:#fbbf24;
+  --c1:#5b9dff; --c2:#7ee0c0; --c3:#f0a868; --c4:#c88bff; --c5:#f87171;
+  --c6:#5fd0d8; --c7:#ffd166; --c8:#a3e635; --c9:#fb7185; --c10:#93c5fd;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",Roboto,sans-serif;
+  font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+header.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+h1{font-size:20px;margin:0;font-weight:700}
+.badge{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:20px;padding:2px 10px}
+.badge.time{color:var(--accent2);border-color:#2c4a44}
+.muted{color:var(--sub)}
+.small{font-size:12px}
+a{color:var(--accent)}
+
+.seg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{background:transparent;border:0;color:var(--sub);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+.seg button.on{background:var(--accent);color:#08101f}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}
+
+.rangebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:8px 10px;margin:8px 0}
+.rangebar input[type=date]{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:5px 8px;font-size:13px}
+input,select{font-family:inherit}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi .lab{font-size:12px;color:var(--sub)}
+.kpi .val{font-size:22px;font-weight:800;margin-top:3px;letter-spacing:-.5px}
+.kpi .delta{font-size:12px;margin-top:3px}
+.kpi .sub2{font-size:11px;color:var(--sub);margin-top:1px}
+.up{color:var(--good)} .down{color:var(--bad)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+.card h3{margin:0 0 10px;font-size:15px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.card h3 .h-sub{font-size:12px;color:var(--sub);font-weight:500}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--sub);font-weight:600;position:sticky;top:0;background:var(--panel);cursor:pointer;user-select:none}
+th.act{color:var(--text)}
+tbody tr:hover{background:var(--panel2)}
+.tbl-wrap{overflow-x:auto;max-height:560px;overflow-y:auto}
+.mini{height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;display:inline-block;width:70px;vertical-align:middle}
+.mini>i{display:block;height:100%;background:var(--accent)}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+svg{display:block;width:100%;height:auto}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--sub);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+.notice{background:#20242e;border:1px solid var(--line);border-radius:10px;padding:12px 14px;color:var(--sub);font-size:13px}
+.err{border-color:var(--bad);color:#f7b4b4}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}}
+.tinput{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:5px 9px;font-size:13px}
+.chks{display:flex;gap:8px 14px;flex-wrap:wrap;margin:2px 0 4px}
+.chk{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sub);cursor:pointer;
+  background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px}
+.chk.on{color:var(--text);border-color:var(--accent)}
+.chk input{accent-color:var(--accent)}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.pri{background:var(--accent);color:#08101f;border-color:var(--accent);font-weight:700}
+.tnum{width:120px;text-align:right;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:4px 7px;font-size:13px}
+.xbtn{background:transparent;border:0;color:var(--sub);cursor:pointer;font-size:14px}
+.xbtn:hover{color:var(--bad)}
+</style>
+</head>
+<body>
+<div id="gate" style="position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 26px;width:320px;max-width:90vw;text-align:center">
+    <div style="font-size:30px">🔒</div>
+    <div style="font-size:16px;font-weight:700;margin:8px 0 2px">프로젝트컴퍼니 매출 대시보드</div>
+    <div class="muted small" style="margin-bottom:16px">비밀번호를 입력하세요</div>
+    <input id="gatePw" type="password" class="tinput" style="width:100%;text-align:center;font-size:15px;padding:9px" placeholder="비밀번호" autocomplete="current-password">
+    <div id="gateErr" class="small" style="color:var(--bad);height:18px;margin:6px 0"></div>
+    <button id="gateBtn" class="btn pri" style="width:100%;padding:9px">열기</button>
+  </div>
+</div>
+<div class="wrap">
+  <header class="top">
+    <h1>📊 프로젝트컴퍼니 매출 대시보드</h1>
+    <span class="badge" id="srcBadge">데이터 불러오는 중…</span>
+    <span class="badge time" id="metaBadge" style="display:none"></span>
+    <span class="badge" id="rangeBadge"></span>
+  </header>
+  <div class="muted small" id="subtitle">매출마스터 기준 · 개인정보 제외 집계</div>
+
+  <div class="bar">
+    <div class="seg" id="viewSeg">
+      <button data-v="overview" class="on">개요·추이</button>
+      <button data-v="channel">채널별</button>
+      <button data-v="category">카테고리별</button>
+      <button data-v="product">제품별</button>
+      <button data-v="target">목표 대비</button>
+    </div>
+    <div class="seg" id="metricSeg" title="집계 기준 금액">
+      <button data-m="sales" class="on">매출</button>
+      <button data-m="pay">실결제가</button>
+    </div>
+  </div>
+
+  <div class="rangebar" id="rangeBar">
+    <span class="small muted">기간</span>
+    <span class="seg" id="presetSeg">
+      <button data-preset="7d" class="on">최근 7일</button>
+      <button data-preset="thismonth">이번달</button>
+      <button data-preset="30">최근 30일</button>
+      <button data-preset="60">최근 60일</button>
+      <button data-preset="90">최근 90일</button>
+      <button data-preset="ytd">올해</button>
+    </span>
+    <input type="date" id="dStart"><span class="muted">~</span><input type="date" id="dEnd">
+    <span class="seg" style="margin-left:auto">
+      <button data-g="day" id="gDay">일별</button>
+      <button data-g="month" id="gMonth" class="on">월별</button>
+    </span>
+  </div>
+
+  <div class="rangebar" id="cmpBar">
+    <span class="small muted">비교</span>
+    <span class="seg" id="cmpSeg">
+      <button data-cmp="none">없음</button>
+      <button data-cmp="prev" class="on">직전 기간</button>
+      <button data-cmp="yoy">전년 동기</button>
+      <button data-cmp="custom">사용자지정</button>
+    </span>
+    <span id="cmpCustom" style="display:none">
+      <input type="date" id="cStart"><span class="muted">~</span><input type="date" id="cEnd">
+    </span>
+    <span class="small muted" id="cmpInfo" style="margin-left:auto"></span>
+  </div>
+
+  <div id="app"></div>
+
+  <div class="notice small" id="setupNote" style="margin-top:16px;display:none"></div>
+</div>
+
+<script>
+/* ============================ 설정 ============================ */
+var CONFIG = {
+  PUB: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRLKqTy44gxZL0dxBUovL8DDlgjqGimGHHawj601MabHD29d06lmsRFS6WC5yZT8wkFuMT_Q2Kjr8Pe/pub?single=true&output=csv&gid=",
+  GID_DAILY: "440158491",
+  GID_CAT:   "1305885048",
+  GID_PROD:  "628618158",
+  GID_OPT:   "760594388",    // agg_opt 탭 gid (옵션별)
+  GID_META:  "1069750530",   // meta 탭 gid (업데이트 시각)
+
+  CH_ALIAS: {
+    "PS스토어팜":"PS 스마트스토어", "P자사몰":"PS 자사몰",
+    "선물하기":"선물하기", "톡딜":"톡딜",
+    "메이커스":"메이커스", "29CM":"29CM",
+    "쿠팡(로)":"쿠팡", "쿠팡(윙)":"쿠팡", "쿠팡":"쿠팡",
+    "컬리":"컬리", "와디즈":"와디즈", "SK스토아":"SK스토아",
+    "LP자사몰":"LP 자사몰", "LP스토어팜":"LP 스마트스토어",
+    "PSL스토어팜":"PSL 스마트스토어", "평소생활":"PSL 스마트스토어",
+    "SSG":"SSG", "오늘의집":"오늘의집", "토스쇼핑":"토스쇼핑",
+    "전화":"전화"
+  },
+  CH_MERGE: { "쿠팡(로)":"쿠팡", "쿠팡(윙)":"쿠팡" },
+  CH_EXCLUDE: [],
+
+  TARGETS: {
+    "PS 스마트스토어": {"2026-03":74000000,"2026-04":85000000,"2026-05":117000000,"2026-06":99000000,"2026-07":124000000,"2026-08":61000000,"2026-09":67000000,"2026-10":63000000,"2026-11":91000000,"2026-12":86000000,"2027-01":102000000,"2027-02":131000000},
+    "PS 자사몰": {"2026-03":25000000,"2026-04":30000000,"2026-05":60000000,"2026-06":55000000,"2026-07":75000000,"2026-08":45000000,"2026-09":30000000,"2026-10":30000000,"2026-11":50000000,"2026-12":30000000,"2027-01":35000000,"2027-02":35000000},
+    "선물하기": {"2026-03":70000000,"2026-04":70000000,"2026-05":100000000,"2026-06":100000000,"2026-07":80000000,"2026-08":75000000,"2026-09":80000000,"2026-10":80000000,"2026-11":100000000,"2026-12":100000000,"2027-01":70000000,"2027-02":75000000},
+    "메이커스": {"2026-03":60000000,"2026-04":50000000,"2026-05":90000000,"2026-06":100000000,"2026-07":80000000,"2026-08":50000000,"2026-09":50000000,"2026-10":75000000,"2026-11":120000000,"2026-12":90000000,"2027-01":45000000,"2027-02":40000000},
+    "29CM": {"2026-03":9000000,"2026-04":12000000,"2026-05":21000000,"2026-06":26000000,"2026-07":20000000,"2026-08":16000000,"2026-09":10000000,"2026-10":18000000,"2026-11":30000000,"2026-12":17000000,"2027-01":10000000,"2027-02":11000000},
+    "쿠팡": {"2026-03":11000000,"2026-04":12000000,"2026-05":20000000,"2026-06":20000000,"2026-07":54000000,"2026-08":14000000,"2026-09":12000000,"2026-10":11000000,"2026-11":11000000,"2026-12":12000000,"2027-01":11000000,"2027-02":12000000},
+    "컬리": {"2026-03":2500000,"2026-04":3500000,"2026-05":16000000,"2026-06":23000000,"2026-07":20000000,"2026-08":8500000,"2026-09":11500000,"2026-10":11200000,"2026-11":23000000,"2026-12":12800000,"2027-01":10000000,"2027-02":8000000},
+    "SK스토아": {"2026-04":1000000,"2026-05":5500000,"2026-06":7500000,"2026-07":7000000,"2026-08":1500000,"2026-09":1250000,"2026-10":2500000,"2026-11":5500000,"2026-12":4000000,"2027-01":3000000,"2027-02":1250000},
+    "LP 자사몰": {"2026-04":5000000,"2026-05":5000000,"2026-06":10000000,"2026-07":10000000,"2026-08":10000000,"2026-09":10000000,"2026-10":10000000,"2026-11":10000000,"2026-12":10000000,"2027-01":10000000,"2027-02":10000000},
+    "LP 스마트스토어": {"2026-04":3000000,"2026-05":4000000,"2026-06":4000000,"2026-07":4000000,"2026-08":5000000,"2026-09":5000000,"2026-10":5000000,"2026-11":5000000,"2026-12":5000000,"2027-01":5000000,"2027-02":5000000},
+    "PSL 스마트스토어": {"2026-03":2000000,"2026-04":2000000,"2026-05":2000000,"2026-06":3800000,"2026-07":5200000,"2026-08":3400000,"2026-09":1900000,"2026-10":1900000,"2026-11":2000000,"2026-12":1900000,"2027-01":1900000,"2027-02":2000000},
+    "SSG": {"2026-03":2900000,"2026-04":2900000,"2026-05":2900000,"2026-06":2900000,"2026-07":3000000,"2026-08":3000000,"2026-09":2900000,"2026-10":2900000,"2026-11":2900000,"2026-12":2900000,"2027-01":2900000,"2027-02":2900000},
+    "오늘의집": {"2026-04":1000000,"2026-05":3000000,"2026-06":5000000,"2026-07":7000000,"2026-08":4000000,"2026-09":3000000,"2026-10":7000000,"2026-11":12000000,"2026-12":11000000,"2027-01":6000000,"2027-02":5000000},
+    "토스쇼핑": {"2026-05":1500000,"2026-06":3500000,"2026-07":3500000,"2026-08":1000000,"2026-09":500000,"2026-10":2000000,"2026-11":4000000,"2026-12":2500000,"2027-01":1000000,"2027-02":500000},
+    "톡딜": {"2026-03":1000000,"2026-04":1000000,"2026-05":2000000,"2026-06":2000000,"2026-07":2000000,"2026-08":1000000,"2026-09":1000000,"2026-10":1000000,"2026-11":1000000,"2026-12":1000000,"2027-01":1000000,"2027-02":1000000}
+  }
+};
+
+/* ============================ 상태 ============================ */
+var STATE = {
+  view:'overview', metric:'sales', gran:'month',
+  preset:'7d', start:null, end:null,
+  cmp:'prev', cmpStart:null, cmpEnd:null,
+  chSel:null,               // 채널별 뷰 선택(Set|null=전체)
+  tf:'', tfFocus:false,     // 표 이름 필터
+  sortIdx:null, sortDir:-1,
+  daily:[], cat:[], prod:[], opt:[],
+  tOv:{},                   // 목표 오버라이드(localStorage)
+  loaded:false, usingMock:false
+};
+var COLORS=['--c1','--c2','--c3','--c4','--c5','--c6','--c7','--c8','--c9','--c10']
+  .map(function(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();});
+
+/* ============================ 유틸 ============================ */
+function won(n){ n=Math.round(n||0);
+  if(Math.abs(n)>=100000000) return (n/100000000).toFixed(n%100000000?1:0).replace(/\.0$/,'')+'억';
+  if(Math.abs(n)>=10000)     return Math.round(n/10000).toLocaleString()+'만';
+  return n.toLocaleString(); }
+function wonFull(n){ return Math.round(n||0).toLocaleString()+'원'; }
+function pct(n){ return (n>=0?'+':'')+n.toFixed(1)+'%'; }
+function el(tag,attrs,html){ var e=document.createElement(tag);
+  if(attrs)for(var k in attrs)e.setAttribute(k,attrs[k]); if(html!=null)e.innerHTML=html; return e; }
+function fmt(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function shiftYear(d,n){ var p=d.split('-'); return (parseInt(p[0],10)+n)+'-'+p[1]+'-'+p[2]; }
+function daysBetween(s,e){ return Math.round((new Date(e)-new Date(s))/864e5)+1; }
+
+function parseCSV(text){
+  var rows=[],row=[],cur='',q=false;
+  for(var i=0;i<text.length;i++){var ch=text[i];
+    if(q){ if(ch=='"'){ if(text[i+1]=='"'){cur+='"';i++;} else q=false;} else cur+=ch; }
+    else{ if(ch=='"')q=true; else if(ch==','){row.push(cur);cur='';}
+      else if(ch=='\n'){row.push(cur);rows.push(row);row=[];cur='';}
+      else if(ch=='\r'){} else cur+=ch; }
+  }
+  if(cur!==''||row.length){row.push(cur);rows.push(row);}
+  return rows;
+}
+function csvToObjects(text){
+  var rows=parseCSV(text).filter(function(r){return r.length>1||(r[0]&&r[0].trim());});
+  if(!rows.length) return [];
+  var head=rows[0].map(function(h){return h.trim();});
+  return rows.slice(1).map(function(r){var o={};head.forEach(function(h,i){o[h]=(r[i]||'').trim();});return o;});
+}
+function toNum(v){ if(v==null)return 0; var n=parseFloat(String(v).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; }
+function pz(s){ s=String(s).trim(); return s.length<2?'0'+s:s; }
+function normYm(s){ if(!s)return s; var p=String(s).trim().split('-'); return p.length<2?s:(p[0]+'-'+pz(p[1])); }
+function normDate(s){ if(!s)return s; var p=String(s).trim().split('-'); return p.length<3?s:(p[0]+'-'+pz(p[1])+'-'+pz(p[2])); }
+
+/* ============================ 로드 ============================ */
+function fetchCSV(gid){
+  if(!gid) return Promise.reject('no-config');
+  // localhost(로컬 서버) = 프록시 경유 / 그 외 실제 https 출처(GitHub Pages 등) = 게시 CSV 직접
+  var url, host=location.hostname;
+  if(host==='localhost'||host==='127.0.0.1') url='csv/'+gid;
+  else { if(!CONFIG.PUB) return Promise.reject('no-config'); url=CONFIG.PUB+gid; }
+  return fetch(url).then(function(r){ if(!r.ok)throw r.status; return r.text(); });
+}
+function fetchOpt(gid){ return gid? fetchCSV(gid).catch(function(){return '';}) : Promise.resolve(''); }
+function load(){
+  try{ STATE.tOv=JSON.parse(localStorage.getItem('salesTargetOverrides')||'{}'); }catch(e){ STATE.tOv={}; }
+  Promise.all([
+    fetchCSV(CONFIG.GID_DAILY), fetchCSV(CONFIG.GID_CAT), fetchCSV(CONFIG.GID_PROD),
+    fetchOpt(CONFIG.GID_OPT), fetchOpt(CONFIG.GID_META)
+  ]).then(function(res){
+    STATE.daily = csvToObjects(res[0]).map(function(o){return {
+      date:normDate(o['날짜']), ch:o['채널'], qty:toNum(o['수량']), cnt:toNum(o['건수']),
+      sales:toNum(o['매출']), pay:toNum(o['결제가']) };}).filter(function(r){return r.date;});
+    STATE.cat = csvToObjects(res[1]).map(function(o){return {
+      ym:normYm(o['년월']), cat:o['카테고리'], qty:toNum(o['수량']), cnt:toNum(o['건수']),
+      sales:toNum(o['매출']), pay:toNum(o['결제가']) };}).filter(function(r){return r.ym;});
+    STATE.prod = csvToObjects(res[2]).map(function(o){return {
+      ym:normYm(o['년월']), prod:o['제품'], cat:o['카테고리'], qty:toNum(o['수량']), cnt:toNum(o['건수']),
+      sales:toNum(o['매출']), pay:toNum(o['결제가']) };}).filter(function(r){return r.ym;});
+    STATE.opt = res[3]? csvToObjects(res[3]).map(function(o){return {
+      ym:normYm(o['년월']), prod:o['제품'], opt:o['옵션']||o['옵션값']||'-', cat:o['카테고리']||'',
+      qty:toNum(o['수량']), cnt:toNum(o['건수']), sales:toNum(o['매출']), pay:toNum(o['결제가']) };}).filter(function(r){return r.ym;}) : [];
+    STATE.meta = res[4]? parseMeta(res[4]) : null;
+    STATE.loaded=true; STATE.usingMock=false;
+    afterLoad();
+  }).catch(function(e){
+    buildMock(); STATE.loaded=true; STATE.usingMock=true; afterLoad(e);
+  });
+}
+function parseMeta(text){
+  var o=csvToObjects(text)[0]||{}; return o;
+}
+function afterLoad(err){
+  var badge=document.getElementById('srcBadge');
+  if(STATE.usingMock){
+    badge.textContent='⚠ 샘플 데이터(미연결)'; badge.classList.add('err');
+    var note=document.getElementById('setupNote'); note.style.display='block';
+    note.innerHTML='<b>집계 시트에 연결되지 않아 샘플 화면입니다.</b> 로컬 서버(<code>매출대시보드_열기.bat</code>)로 열어주세요.'+
+      (err&&err!=='no-config'?'<br><span class="err">(오류: '+err+')</span>':'');
+  }else{
+    badge.textContent='✔ 집계시트 연결됨 · '+STATE.daily.length.toLocaleString()+'행';
+    if(STATE.meta){
+      var t=STATE.meta['매출마스터최종수정']||STATE.meta['집계실행']||'';
+      if(t){ var mb=document.getElementById('metaBadge'); mb.style.display=''; mb.textContent='🕒 '+t; }
+    }
+  }
+  var dates=STATE.daily.map(function(r){return r.date;}).sort();
+  STATE.maxDate = dates[dates.length-1] || '2026-08-12';
+  STATE.minDate = dates[0] || '2024-01-01';
+  applyPreset('7d');
+}
+
+/* ============================ 샘플 데이터 ============================ */
+function buildMock(){
+  var chs=['PS스토어팜','P자사몰','선물하기','메이커스','29CM','쿠팡(로)','컬리','오늘의집'];
+  var cats=['매트리스','토퍼','베개','이불','패드류','라포즈','소품','추가커버'];
+  var prods=['퍼펙션매트리스','푹신토퍼','충분베개','촉감이불','냉감패드','쿨쿨곰','아워글래스','방수패드','플립토퍼','솔솔베개'];
+  var daily={},cat={},prod={};
+  var d=new Date(2024,0,1), end=new Date(2026,7,12);
+  var seed=42; function rnd(){seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff;}
+  while(d<=end){
+    var ds=fmt(d), ym=ds.slice(0,7);
+    var growth=1+ (d-new Date(2024,0,1))/(1000*3600*24*365)*0.35;
+    var season=1+0.25*Math.sin((d.getMonth()/12)*6.28);
+    chs.forEach(function(ch,ci){ if(rnd()<0.15)return;
+      var base=(ci<3?2500000:600000)*growth*season*(0.6+rnd()*0.8);
+      addM(daily,ds+'|'+ch,Math.round(base/70000),base); });
+    cats.forEach(function(c,ci){ if(rnd()<0.1)return;
+      var base=(1200000-ci*80000)*growth*season*(0.6+rnd()*0.8);
+      addM(cat,ym+'|'+c,Math.round(base/70000),base); });
+    if(d.getDate()===1){ prods.forEach(function(p,pi){
+      var base=(30000000-pi*2200000)*growth*season*(0.7+rnd()*0.6);
+      addM(prod,ym+'|'+p+'|'+cats[pi%cats.length],Math.round(base/70000),base); }); }
+    d.setDate(d.getDate()+1);
+  }
+  STATE.daily=toArr(daily,['date','ch']); STATE.cat=toArr(cat,['ym','cat']); STATE.prod=toArr(prod,['ym','prod','cat']); STATE.opt=[];
+  function addM(o,k,q,s){var x=o[k]||(o[k]={q:0,c:0,s:0});x.q+=q;x.c+=1;x.s+=s;}
+  function toArr(o,keys){return Object.keys(o).map(function(k){var p=k.split('|'),x=o[k],r={};
+    keys.forEach(function(kk,i){r[kk]=p[i];}); r.qty=x.q;r.cnt=x.c;r.sales=Math.round(x.s);r.pay=Math.round(x.s*0.93);return r;});}
+}
+
+/* ============================ 기간/비교 ============================ */
+function curStart(){ return STATE.start||STATE.minDate; }
+function curEnd(){ return STATE.end||STATE.maxDate; }
+function inRange(dateOrYm){
+  var d=dateOrYm.length>7?dateOrYm:dateOrYm+'-01';
+  var s=curStart(), e=curEnd();
+  if(d<s)return false; if(d>e)return false; return true;
+}
+function metric(){ return STATE.metric; }
+function chDisp(ch){ return CONFIG.CH_MERGE[ch]||ch; }
+function notExcl(r){ return CONFIG.CH_EXCLUDE.indexOf(r.ch)<0; }
+
+function fDaily(){ return STATE.daily.filter(function(r){ return notExcl(r)&&inRange(r.date); }); }
+function fCat(){ return STATE.cat.filter(function(r){return inRange(r.ym);}); }
+function fProd(){ return STATE.prod.filter(function(r){return inRange(r.ym);}); }
+
+// 비교 기간 계산
+function cmpRange(){
+  if(STATE.cmp==='none') return null;
+  var s=curStart(), e=curEnd();
+  if(STATE.cmp==='yoy') return {start:shiftYear(s,-1),end:shiftYear(e,-1),label:'전년 동기'};
+  if(STATE.cmp==='custom'){ if(!STATE.cmpStart||!STATE.cmpEnd)return null; return {start:STATE.cmpStart,end:STATE.cmpEnd,label:'사용자지정'}; }
+  var days=daysBetween(s,e);
+  var pe=new Date(s); pe.setDate(pe.getDate()-1);
+  var ps=new Date(pe); ps.setDate(ps.getDate()-(days-1));
+  return {start:fmt(ps),end:fmt(pe),label:'직전 기간'};
+}
+function rangeTotals(s,e,chFilter){
+  var t=0,c=0,q=0,m=STATE.metric;
+  STATE.daily.forEach(function(r){ if(!notExcl(r))return; if(chFilter&&!chFilter(r))return;
+    if(r.date>=s&&r.date<=e){ t+=r[m]; c+=r.cnt; q+=r.qty; } });
+  return {t:t,c:c,q:q};
+}
+
+function sumBy(rows,keyFn){ var m={}; rows.forEach(function(r){
+  var k=keyFn(r); var o=m[k]||(m[k]={sales:0,pay:0,qty:0,cnt:0,key:k});
+  o.sales+=r.sales;o.pay+=r.pay;o.qty+=r.qty;o.cnt+=r.cnt; }); return m; }
+function bucketOf(date){ return STATE.gran==='day'?date:date.slice(0,7); }
+
+/* ============================ 렌더 ============================ */
+function render(){
+  document.querySelectorAll('#viewSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.v===STATE.view);});
+  document.querySelectorAll('#metricSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.m===STATE.metric);});
+  document.getElementById('gMonth').classList.toggle('on',STATE.gran==='month');
+  document.getElementById('gDay').classList.toggle('on',STATE.gran==='day');
+  document.querySelectorAll('#cmpSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.cmp===STATE.cmp);});
+  document.getElementById('cmpCustom').style.display = STATE.cmp==='custom'?'':'none';
+  var cr=cmpRange();
+  document.getElementById('cmpInfo').textContent = cr? ('비교: '+cr.start+' ~ '+cr.end):'';
+  document.getElementById('rangeBadge').textContent=curStart()+' ~ '+curEnd();
+  var app=document.getElementById('app'); app.innerHTML='';
+  if(STATE.view==='overview')   renderOverview(app);
+  else if(STATE.view==='channel')  renderChannel(app);
+  else if(STATE.view==='category') renderCategory(app);
+  else if(STATE.view==='product')  renderProduct(app);
+  else if(STATE.view==='target')   renderTarget(app);
+  if(STATE.tfFocus){ var f=document.getElementById('tblFilter'); if(f){ f.focus(); try{f.setSelectionRange(f.value.length,f.value.length);}catch(e){} } }
+}
+
+/* ---- KPI (비교 증감 포함) ---- */
+function kpiRow(app,chFilter){
+  var m=metric();
+  var cur=rangeTotals(curStart(),curEnd(),chFilter);
+  var cr=cmpRange(), cmp=cr?rangeTotals(cr.start,cr.end,chFilter):null;
+  var lab=cr?cr.label+'比':'';
+  function dd(a,b){ return (cmp&&b)?((a-b)/b*100):NaN; }
+  var box=el('div',{class:'kpis'});
+  box.appendChild(kpi('총 '+(m==='sales'?'매출':'실결제'),wonFull(cur.t),dd(cur.t,cmp&&cmp.t),lab,cmp?wonFull(cmp.t):null));
+  box.appendChild(kpi('주문 건수',cur.c.toLocaleString()+'건',dd(cur.c,cmp&&cmp.c),lab,cmp?cmp.c.toLocaleString()+'건':null));
+  box.appendChild(kpi('판매 수량',cur.q.toLocaleString()+'개',dd(cur.q,cmp&&cmp.q),lab,cmp?cmp.q.toLocaleString()+'개':null));
+  box.appendChild(kpi('건단가',wonFull(cur.c?cur.t/cur.c:0),null,'',null));
+  box.appendChild(kpi('일평균 매출',wonFull(cur.t/Math.max(1,daysBetween(curStart(),curEnd()))),null,'',null));
+  app.appendChild(box);
+}
+function kpi(lab,val,delta,dlab,sub2){
+  var d=el('div',{class:'kpi'});
+  d.appendChild(el('div',{class:'lab'},lab));
+  d.appendChild(el('div',{class:'val'},val));
+  if(delta!=null&&isFinite(delta))
+    d.appendChild(el('div',{class:'delta '+(delta>=0?'up':'down')},(delta>=0?'▲':'▼')+' '+(dlab||'')+' '+pct(delta)));
+  if(sub2) d.appendChild(el('div',{class:'sub2'},'비교: '+sub2));
+  return d;
+}
+
+/* ---- 추이 카드(비교 오버레이) ---- */
+function trendCard(title,sub,rows,chFilter){
+  var m=metric();
+  var cur=sumBy(rows,function(r){return bucketOf(r.date);});
+  var buckets=Object.keys(cur).sort();
+  var series=[{name:'현재',data:buckets.map(function(b){return cur[b][m];}),color:COLORS[0]}];
+  var cr=cmpRange();
+  if(cr){
+    var crows=STATE.daily.filter(function(r){return notExcl(r)&&r.date>=cr.start&&r.date<=cr.end&&(!chFilter||chFilter(r));});
+    var cm=sumBy(crows,function(r){return bucketOf(r.date);});
+    var cb=Object.keys(cm).sort();
+    series.push({name:cr.label,data:buckets.map(function(_,i){return cb[i]?cm[cb[i]][m]:0;}),color:COLORS[4],dash:true});
+  }
+  var c=el('div',{class:'card'});
+  c.appendChild(el('h3',null,title+' <span class="h-sub">'+sub+(cr?' · 점선='+cr.label:'')+'</span>'));
+  c.appendChild(lineChart(buckets,series));
+  app0(c); return c;
+}
+function app0(){}
+
+/* ---------- 개요 ---------- */
+function renderOverview(app){
+  kpiRow(app,null);
+  var m=metric(), rows=fDaily();
+  app.appendChild(trendCard('매출 추이',(STATE.gran==='month'?'월별':'일별'),rows,null));
+  var g=el('div',{class:'grid2'});
+  g.appendChild(shareCard('채널 비중',topShare(sumBy(rows,function(r){return chDisp(r.ch);}),m,8)));
+  g.appendChild(shareCard('카테고리 비중',topShare(sumBy(fCat(),function(r){return r.cat;}),m,8)));
+  app.appendChild(g);
+}
+function topShare(map,m,n){
+  var arr=Object.keys(map).map(function(k){return {name:k,val:map[k][m]};}).sort(function(a,b){return b.val-a.val;});
+  var top=arr.slice(0,n), rest=arr.slice(n).reduce(function(s,x){return s+x.val;},0);
+  if(rest>0)top.push({name:'기타',val:rest}); return top;
+}
+function shareCard(title,arr){
+  var total=arr.reduce(function(s,x){return s+x.val;},0)||1;
+  var c=el('div',{class:'card'}); c.appendChild(el('h3',null,title));
+  c.appendChild(donut(arr,total));
+  var leg=el('div',{class:'legend'});
+  arr.forEach(function(x,i){ leg.appendChild(el('span',null,
+    '<span class="dot" style="background:'+COLORS[i%COLORS.length]+'"></span>'+x.name+' <b style="color:var(--text)">'+(x.val/total*100).toFixed(1)+'%</b>')); });
+  c.appendChild(leg); return c;
+}
+
+/* ---------- 채널별 (채널 선택) ---------- */
+function renderChannel(app){
+  var m=metric();
+  var allRows=fDaily();
+  var allArr=Object.keys(sumBy(allRows,function(r){return chDisp(r.ch);})).map(function(k){return k;});
+  var allSum=sumBy(allRows,function(r){return chDisp(r.ch);});
+  allArr.sort(function(a,b){return allSum[b][m]-allSum[a][m];});
+
+  // 채널 선택 UI
+  var selCard=el('div',{class:'card'});
+  selCard.appendChild(el('h3',null,'채널 선택 <span class="h-sub">보고 싶은 채널만 체크 (전체 해제 시 모두 표시)</span>'));
+  var actbar=el('div',{class:'bar',style:'margin:0 0 6px'});
+  var bAll=el('button',{class:'btn'},'전체 선택'); bAll.onclick=function(){STATE.chSel=new Set(allArr);render();};
+  var bNone=el('button',{class:'btn'},'전체 해제'); bNone.onclick=function(){STATE.chSel=null;render();};
+  actbar.appendChild(bAll); actbar.appendChild(bNone); selCard.appendChild(actbar);
+  var chks=el('div',{class:'chks'});
+  allArr.forEach(function(ch){
+    var on=STATE.chSel?STATE.chSel.has(ch):false;
+    var lab=el('label',{class:'chk'+(on?' on':'')});
+    var cb=el('input',{type:'checkbox'}); cb.checked=on;
+    cb.onchange=function(){ if(!STATE.chSel)STATE.chSel=new Set(); if(cb.checked)STATE.chSel.add(ch); else STATE.chSel.delete(ch); if(STATE.chSel.size===0)STATE.chSel=null; render(); };
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(ch+' ('+won(allSum[ch][m])+')'));
+    chks.appendChild(lab);
+  });
+  selCard.appendChild(chks); app.appendChild(selCard);
+
+  var chFilter=function(r){ return !STATE.chSel || STATE.chSel.has(chDisp(r.ch)); };
+  kpiRow(app,chFilter);
+  var rows=allRows.filter(chFilter);
+  var map=sumBy(rows,function(r){return chDisp(r.ch);});
+  var arr=Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b[m]-a[m];});
+  var total=arr.reduce(function(s,x){return s+x[m];},0)||1;
+
+  var top=arr.slice(0,6).map(function(x){return x.key;});
+  var buckets=uniqBuckets(rows);
+  var series=top.map(function(ch,i){
+    var sm=sumBy(rows.filter(function(r){return chDisp(r.ch)===ch;}),function(r){return bucketOf(r.date);});
+    return {name:ch,color:COLORS[i%COLORS.length],data:buckets.map(function(b){return sm[b]?sm[b][m]:0;})}; });
+  var c1=el('div',{class:'card'});
+  c1.appendChild(el('h3',null,'채널별 매출 추이 <span class="h-sub">선택 채널 중 상위 6개</span>'));
+  c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
+
+  var c2=el('div',{class:'card'});
+  c2.appendChild(el('h3',null,'채널별 매출 <span class="h-sub">'+arr.length+'개 채널</span>'));
+  c2.appendChild(tableOf(['채널','매출','비중','건수','수량','건단가'],
+    arr.map(function(x){return [x.key,x[m],x[m]/total,x.cnt,x.qty,x.cnt?x[m]/x.cnt:0];}),
+    [null,'won','share','num','num','won'], true));
+  app.appendChild(c2);
+}
+
+/* ---------- 카테고리별 ---------- */
+function renderCategory(app){
+  var m=metric(), rows=fCat();
+  var map=sumBy(rows,function(r){return r.cat;});
+  var arr=Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b[m]-a[m];});
+  var total=arr.reduce(function(s,x){return s+x[m];},0)||1;
+  kpiRow(app,null);
+  var top=arr.slice(0,6).map(function(x){return x.key;});
+  var buckets=uniqYm(rows);
+  var series=top.map(function(cat,i){
+    var sm=sumBy(rows.filter(function(r){return r.cat===cat;}),function(r){return r.ym;});
+    return {name:cat,color:COLORS[i%COLORS.length],data:buckets.map(function(b){return sm[b]?sm[b][m]:0;})}; });
+  var c1=el('div',{class:'card'});
+  c1.appendChild(el('h3',null,'카테고리별 매출 추이 <span class="h-sub">월별 · 상위 6개</span>'));
+  c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
+  var c2=el('div',{class:'card'});
+  c2.appendChild(el('h3',null,'카테고리별 매출'));
+  c2.appendChild(tableOf(['카테고리','매출','비중','건수','수량','건단가'],
+    arr.map(function(x){return [x.key,x[m],x[m]/total,x.cnt,x.qty,x.cnt?x[m]/x.cnt:0];}),
+    [null,'won','share','num','num','won'], true));
+  app.appendChild(c2);
+}
+
+/* ---------- 제품별 (옵션별 포함) ---------- */
+function renderProduct(app){
+  var m=metric(), rows=fProd();
+  var map=sumBy(rows,function(r){return r.prod;});
+  var catOf={}; rows.forEach(function(r){catOf[r.prod]=r.cat;});
+  var arr=Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b[m]-a[m];});
+  var total=arr.reduce(function(s,x){return s+x[m];},0)||1;
+  kpiRow(app,null);
+  var top=arr.slice(0,8).map(function(x){return x.key;});
+  var buckets=uniqYm(rows);
+  var series=top.map(function(pd,i){
+    var sm=sumBy(rows.filter(function(r){return r.prod===pd;}),function(r){return r.ym;});
+    return {name:pd,color:COLORS[i%COLORS.length],data:buckets.map(function(b){return sm[b]?sm[b][m]:0;})}; });
+  var c1=el('div',{class:'card'});
+  c1.appendChild(el('h3',null,'제품별 매출 추이 <span class="h-sub">월별 · 상위 8개</span>'));
+  c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
+  var c2=el('div',{class:'card'});
+  c2.appendChild(el('h3',null,'제품별 매출 순위'));
+  c2.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
+    arr.map(function(x){return [x.key,catOf[x.key]||'',x[m],x[m]/total,x.cnt,x.qty];}),
+    [null,null,'won','share','num','num'], true));
+  app.appendChild(c2);
+
+  // 옵션별 (agg_opt 연결 시)
+  if(STATE.opt&&STATE.opt.length){
+    var orows=STATE.opt.filter(function(r){return inRange(r.ym);});
+    var prods=Object.keys(sumBy(orows,function(r){return r.prod;}));
+    prods.sort(function(a,b){return 0;});
+    var pick=document.getElementById('optProd')?document.getElementById('optProd').value:(arr[0]?arr[0].key:prods[0]);
+    var c3=el('div',{class:'card'});
+    var h=el('h3',null,'옵션별 매출 ');
+    var sel=el('select',{id:'optProd'});
+    arr.map(function(x){return x.key;}).filter(function(p){return prods.indexOf(p)>=0;}).forEach(function(p){var op=el('option',{value:p},p);if(p===pick)op.selected=true;sel.appendChild(op);});
+    sel.onchange=render; h.appendChild(sel); c3.appendChild(h);
+    var om=sumBy(orows.filter(function(r){return r.prod===pick;}),function(r){return r.opt;});
+    var oarr=Object.keys(om).map(function(k){return om[k];}).sort(function(a,b){return b[m]-a[m];});
+    var ot=oarr.reduce(function(s,x){return s+x[m];},0)||1;
+    c3.appendChild(tableOf(['옵션','매출','비중','건수','수량'],
+      oarr.map(function(x){return [x.key,x[m],x[m]/ot,x.cnt,x.qty];}),
+      [null,'won','share','num','num'], false));
+    app.appendChild(c3);
+  } else {
+    app.appendChild(el('div',{class:'notice small'},'옵션별 조회는 집계 스크립트 재실행(옵션 차원 추가) 후 활성화됩니다.'));
+  }
+}
+
+/* ---------- 목표 대비 (편집 가능) ---------- */
+function effTarget(grp,ym){
+  var o=STATE.tOv[grp];
+  if(o&&Object.prototype.hasOwnProperty.call(o,ym)){ var v=o[ym]; return (v===''||v==null)?null:Number(v); }
+  var d=CONFIG.TARGETS[grp]; return (d&&d[ym]!=null)?d[ym]:null;
+}
+function setOverride(grp,ym,val){ if(!STATE.tOv[grp])STATE.tOv[grp]={}; STATE.tOv[grp][ym]=val; }
+function saveOverrides(){ localStorage.setItem('salesTargetOverrides',JSON.stringify(STATE.tOv)); }
+function targetGroups(){
+  var s={}; Object.keys(CONFIG.TARGETS).forEach(function(g){s[g]=1;}); Object.keys(STATE.tOv).forEach(function(g){s[g]=1;});
+  return Object.keys(s);
+}
+function renderTarget(app){
+  var actual={}; STATE.daily.forEach(function(r){ if(!notExcl(r))return;
+    var grp=CONFIG.CH_ALIAS[chDisp(r.ch)]||CONFIG.CH_ALIAS[r.ch]; if(!grp)return;
+    var k=grp+'|'+r.date.slice(0,7); (actual[k]=actual[k]||{s:0}).s+=r.sales; });
+  var months={}; targetGroups().forEach(function(g){
+    var dd=CONFIG.TARGETS[g]||{}; Object.keys(dd).forEach(function(ym){months[ym]=1;});
+    var ov=STATE.tOv[g]||{}; Object.keys(ov).forEach(function(ym){months[ym]=1;}); });
+  var monthList=Object.keys(months).sort();
+  var pick=document.getElementById('tMonth')?document.getElementById('tMonth').value:null;
+  if(!pick){ var avail=monthList.filter(function(ym){return ym<=STATE.maxDate;}); pick=avail[avail.length-1]||monthList[monthList.length-1]||monthList[0]; }
+
+  var bar=el('div',{class:'bar'});
+  bar.innerHTML='<span class="small muted">기준 월</span> ';
+  var s=el('select',{id:'tMonth'});
+  monthList.forEach(function(ym){var op=el('option',{value:ym},ym);if(ym===pick)op.selected=true;s.appendChild(op);});
+  s.onchange=render; bar.appendChild(s);
+  var bAdd=el('button',{class:'btn'},'+ 채널 추가'); bAdd.onclick=function(){ var name=prompt('추가할 채널(목표그룹) 이름:'); if(name){ name=name.trim(); if(name){ setOverride(name,pick,0); render(); } } };
+  var bSave=el('button',{class:'btn pri'},'💾 목표 저장'); bSave.onclick=function(){ saveOverrides(); bSave.textContent='✔ 저장됨'; setTimeout(function(){bSave.textContent='💾 목표 저장';},1200); };
+  var bReset=el('button',{class:'btn'},'기본값 복원'); bReset.onclick=function(){ if(confirm('직접 입력한 목표값을 모두 지우고 기본값으로 되돌릴까요?')){ STATE.tOv={}; saveOverrides(); render(); } };
+  bar.appendChild(bAdd); bar.appendChild(bSave); bar.appendChild(bReset);
+  app.appendChild(bar);
+
+  var data=[];
+  targetGroups().forEach(function(grp){
+    var tgt=effTarget(grp,pick);
+    var act=actual[grp+'|'+pick]?actual[grp+'|'+pick].s:0;
+    if(tgt==null && act===0 && !(STATE.tOv[grp]&&Object.prototype.hasOwnProperty.call(STATE.tOv[grp],pick))) return;
+    data.push({grp:grp,tgt:tgt,act:act});
+  });
+  data.sort(function(a,b){return (b.tgt||0)-(a.tgt||0);});
+  var sumT=data.reduce(function(s,x){return s+(x.tgt||0);},0);
+  var sumA=data.reduce(function(s,x){return s+x.act;},0);
+
+  var box=el('div',{class:'kpis'});
+  box.appendChild(kpi(pick+' 목표 합계',wonFull(sumT),null,'',null));
+  box.appendChild(kpi(pick+' 실적 합계',wonFull(sumA),null,'',null));
+  var dk=el('div',{class:'kpi'}); dk.appendChild(el('div',{class:'lab'},'전체 달성률'));
+  dk.appendChild(el('div',{class:'val '+(sumA>=sumT&&sumT>0?'up':'')},sumT?((sumA/sumT*100).toFixed(1)+'%'):'-'));
+  box.appendChild(dk); app.appendChild(box);
+
+  var c=el('div',{class:'card'});
+  c.appendChild(el('h3',null,pick+' 채널별 목표 대비 <span class="h-sub">목표값 직접 수정 → 💾 저장 (브라우저에 저장됨)</span>'));
+  var t=el('table');
+  t.innerHTML='<thead><tr><th>채널</th><th>목표(수정)</th><th>실적</th><th>달성률</th><th></th><th></th></tr></thead>';
+  var tb=el('tbody');
+  data.forEach(function(x){
+    var tr=el('tr');
+    var tdCh=el('td',null,x.grp);
+    var tdTgt=el('td'); var inp=el('input',{class:'tnum',type:'number',value:(x.tgt==null?'':x.tgt)});
+    inp.onchange=function(){ setOverride(x.grp,pick,inp.value===''?'':Number(inp.value)); render(); };
+    tdTgt.appendChild(inp);
+    var rate=x.tgt?x.act/x.tgt*100:null;
+    var tdAct=el('td',null,wonFull(x.act));
+    var tdRate=el('td',{class:rate==null?'':(rate>=100?'pos':rate>=70?'':'neg')}, rate==null?'-':('<b>'+rate.toFixed(0)+'%</b>'));
+    var tdBar=el('td'); tdBar.innerHTML= rate==null?'':'<span class="mini"><i style="width:'+Math.min(100,rate)+'%;background:'+(rate>=100?'var(--good)':rate>=70?'var(--warn)':'var(--bad)')+'"></i></span>';
+    var tdX=el('td'); var x2=el('button',{class:'xbtn',title:'이 채널 목표 삭제'},'✕'); x2.onclick=function(){ setOverride(x.grp,pick,''); render(); };
+    tdX.appendChild(x2);
+    tr.appendChild(tdCh);tr.appendChild(tdTgt);tr.appendChild(tdAct);tr.appendChild(tdRate);tr.appendChild(tdBar);tr.appendChild(tdX);
+    tb.appendChild(tr);
+  });
+  var trS=el('tr',{style:'font-weight:700;border-top:2px solid var(--line)'});
+  trS.innerHTML='<td>합계</td><td>'+wonFull(sumT)+'</td><td>'+wonFull(sumA)+'</td><td>'+(sumT?(sumA/sumT*100).toFixed(0)+'%':'-')+'</td><td></td><td></td>';
+  tb.appendChild(trS);
+  t.appendChild(tb); var w=el('div',{class:'tbl-wrap'}); w.appendChild(t); c.appendChild(w);
+  if(STATE.usingMock) c.appendChild(el('div',{class:'small muted',style:'margin-top:8px'},'※ 샘플 데이터 기준 예시입니다.'));
+  app.appendChild(c);
+}
+
+/* ============================ 표 (필터+정렬 asc/desc) ============================ */
+function tableOf(headers,rows,types,withFilter){
+  var wrap=el('div');
+  if(withFilter){
+    var fb=el('div',{class:'bar',style:'margin:0 0 8px'});
+    var inp=el('input',{class:'tinput',id:'tblFilter',placeholder:'이름으로 필터…'}); inp.value=STATE.tf||'';
+    inp.oninput=function(){ STATE.tf=inp.value; STATE.tfFocus=true; render(); };
+    fb.appendChild(inp);
+    if(STATE.tf){ var cl=el('button',{class:'btn'},'지우기'); cl.onclick=function(){STATE.tf='';STATE.tfFocus=false;render();}; fb.appendChild(cl); }
+    fb.appendChild(el('span',{class:'small muted'},'헤더 클릭 = 정렬(오름/내림 토글)'));
+    wrap.appendChild(fb);
+    var flt=(STATE.tf||'').toLowerCase();
+    if(flt) rows=rows.filter(function(r){return String(r[0]).toLowerCase().indexOf(flt)>=0;});
+  }
+  var defIdx=headers.indexOf('매출'); if(defIdx<0)defIdx=1;
+  var sc=(STATE.sortIdx!=null&&STATE.sortIdx<headers.length)?STATE.sortIdx:defIdx;
+  var dir=STATE.sortDir||-1;
+  rows=rows.slice().sort(function(a,b){var av=a[sc],bv=b[sc];
+    if(typeof av==='number'&&typeof bv==='number')return dir*(av-bv);
+    return dir*String(av).localeCompare(String(bv),'ko'); });
+  var t=el('table'); var thead=el('thead'); var htr=el('tr');
+  headers.forEach(function(h,i){
+    var arrow=(i===sc)?(dir<0?' ▼':' ▲'):'';
+    var th=el('th',{class:i===sc?'act':''},h+arrow);
+    th.onclick=function(){ if(STATE.sortIdx===i)STATE.sortDir=-(STATE.sortDir||-1); else{STATE.sortIdx=i;STATE.sortDir=-1;} render(); };
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr); t.appendChild(thead);
+  var tb=el('tbody');
+  rows.forEach(function(r){ var tr=el('tr');
+    r.forEach(function(v,i){ var td=el('td');
+      if(types[i]==='won') td.textContent=wonFull(v);
+      else if(types[i]==='num') td.textContent=Math.round(v).toLocaleString();
+      else if(types[i]==='share') td.innerHTML=(v*100).toFixed(1)+'% <span class="mini"><i style="width:'+(v*100).toFixed(0)+'%"></i></span>';
+      else td.textContent=v;
+      tr.appendChild(td); });
+    tb.appendChild(tr); });
+  t.appendChild(tb); var w=el('div',{class:'tbl-wrap'}); w.appendChild(t); wrap.appendChild(w);
+  return wrap;
+}
+
+/* ============================ 차트 ============================ */
+function uniqBuckets(rows){ var s={}; rows.forEach(function(r){s[bucketOf(r.date)]=1;}); return Object.keys(s).sort(); }
+function uniqYm(rows){ var s={}; rows.forEach(function(r){s[r.ym]=1;}); return Object.keys(s).sort(); }
+function legendOf(names){ var l=el('div',{class:'legend'});
+  names.forEach(function(n,i){ l.appendChild(el('span',null,'<span class="dot" style="background:'+COLORS[i%COLORS.length]+'"></span>'+n)); }); return l; }
+function niceTop(v){ if(v<=0)return 1; var p=Math.pow(10,Math.floor(Math.log10(v))); var n=v/p; var m=n<=1?1:n<=2?2:n<=5?5:10; return m*p; }
+
+function lineChart(labels,series){
+  var W=1100,H=340,pad={l:56,r:16,t:16,b:46};
+  var iw=W-pad.l-pad.r, ih=H-pad.t-pad.b;
+  var maxV=niceTop(Math.max.apply(null,series.reduce(function(a,s){return a.concat(s.data);},[0])));
+  var n=labels.length, dx=n>1?iw/(n-1):0;
+  var svg='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+  for(var g=0;g<=4;g++){var y=pad.t+ih*g/4;var val=maxV*(1-g/4);
+    svg+='<line x1="'+pad.l+'" y1="'+y+'" x2="'+(W-pad.r)+'" y2="'+y+'" stroke="var(--line)"/>';
+    svg+='<text x="'+(pad.l-8)+'" y="'+(y+4)+'" fill="var(--sub)" font-size="11" text-anchor="end">'+won(val)+'</text>';}
+  var step=Math.max(1,Math.ceil(n/12));
+  for(var i=0;i<n;i++){ if(i%step!==0&&i!==n-1)continue; var x=pad.l+dx*i;
+    var lab=labels[i]; if(STATE.gran==='day')lab=lab.slice(5); else lab=lab.slice(2);
+    svg+='<text x="'+x+'" y="'+(H-pad.b+18)+'" fill="var(--sub)" font-size="10" text-anchor="middle">'+lab+'</text>';}
+  series.forEach(function(s){
+    if(n===1){ var cx=pad.l+iw/2, cy=pad.t+ih*(1-(s.data[0]/maxV)); svg+='<circle cx="'+cx+'" cy="'+cy+'" r="4" fill="'+s.color+'"'+(s.dash?' opacity="0.7"':'')+'/>'; return; }
+    var pts=s.data.map(function(v,i){return [pad.l+dx*i, pad.t+ih*(1-(v/maxV))];});
+    var d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join(' ');
+    svg+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2.2"'+(s.dash?' stroke-dasharray="5 4" opacity="0.8"':'')+'/>';
+    if(series.length<=3&&!s.dash) pts.forEach(function(p){svg+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.6" fill="'+s.color+'"/>';});
+  });
+  svg+='</svg>'; var d=el('div'); d.innerHTML=svg; return d;
+}
+function donut(arr,total){
+  var W=260,H=200,cx=100,cy=100,rO=82,rI=48;
+  var svg='<svg viewBox="0 0 '+W+' '+H+'">'; var ang=-Math.PI/2;
+  arr.forEach(function(x,i){ var frac=x.val/total; var a2=ang+frac*Math.PI*2; var lg=frac>0.5?1:0;
+    var x1=cx+rO*Math.cos(ang),y1=cy+rO*Math.sin(ang),x2=cx+rO*Math.cos(a2),y2=cy+rO*Math.sin(a2);
+    var xi2=cx+rI*Math.cos(a2),yi2=cy+rI*Math.sin(a2),xi1=cx+rI*Math.cos(ang),yi1=cy+rI*Math.sin(ang);
+    svg+='<path d="M'+x1+' '+y1+' A'+rO+' '+rO+' 0 '+lg+' 1 '+x2+' '+y2+' L'+xi2+' '+yi2+' A'+rI+' '+rI+' 0 '+lg+' 0 '+xi1+' '+yi1+' Z" fill="'+COLORS[i%COLORS.length]+'"/>'; ang=a2; });
+  svg+='<text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">'+won(total)+'</text>';
+  svg+='<text x="'+cx+'" y="'+(cy+14)+'" text-anchor="middle" fill="var(--sub)" font-size="10">합계</text>';
+  svg+='</svg>'; var d=el('div'); d.innerHTML=svg; return d;
+}
+
+/* ============================ 기간 프리셋 ============================ */
+function applyPreset(p){
+  STATE.preset=p;
+  var max=STATE.maxDate, e=new Date(max), s;
+  if(p==='7d'){ s=new Date(e); s.setDate(s.getDate()-6); STATE.start=fmt(s); STATE.end=max; }
+  else if(p==='thismonth'){ STATE.start=max.slice(0,7)+'-01'; STATE.end=max; }
+  else if(p==='30'){ s=new Date(e); s.setDate(s.getDate()-29); STATE.start=fmt(s); STATE.end=max; }
+  else if(p==='60'){ s=new Date(e); s.setDate(s.getDate()-59); STATE.start=fmt(s); STATE.end=max; }
+  else if(p==='90'){ s=new Date(e); s.setDate(s.getDate()-89); STATE.start=fmt(s); STATE.end=max; }
+  else if(p==='ytd'){ STATE.start=max.slice(0,4)+'-01-01'; STATE.end=max; }
+  // 기간 길이에 따라 일별/월별 자동 선택
+  STATE.gran = daysBetween(STATE.start,STATE.end) <= 92 ? 'day' : 'month';
+  document.getElementById('dStart').value=STATE.start;
+  document.getElementById('dEnd').value=STATE.end;
+  document.querySelectorAll('#presetSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.preset===p);});
+  render();
+}
+function markCustomRange(){ STATE.preset=''; document.querySelectorAll('#presetSeg button').forEach(function(b){b.classList.remove('on');}); }
+
+/* ============================ 이벤트 ============================ */
+document.getElementById('viewSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b)return; STATE.view=b.dataset.v; STATE.sortIdx=null; STATE.tf=''; STATE.tfFocus=false; render(); });
+document.getElementById('metricSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b)return; STATE.metric=b.dataset.m; render(); });
+document.getElementById('presetSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b)return; applyPreset(b.dataset.preset); });
+document.querySelector('#rangeBar .seg:last-child').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b)return; STATE.gran=b.dataset.g; render(); });
+document.getElementById('dStart').addEventListener('change',function(e){STATE.start=e.target.value;markCustomRange();render();});
+document.getElementById('dEnd').addEventListener('change',function(e){STATE.end=e.target.value;markCustomRange();render();});
+document.getElementById('cmpSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b)return; STATE.cmp=b.dataset.cmp; render(); });
+document.getElementById('cStart').addEventListener('change',function(e){STATE.cmpStart=e.target.value;render();});
+document.getElementById('cEnd').addEventListener('change',function(e){STATE.cmpEnd=e.target.value;render();});
+
+/* ============================ 비밀번호 잠금 ============================ */
+// 주의: 소스를 열람할 수 있는 사람은 우회 가능한 가벼운 잠금입니다(완전 보안 아님).
+var PW_HASH='1d88a063de73ba7681894885d98427139c654905f84115d1c94963c1ffd5c340';
+var _loaded=false;
+function reveal(){ document.getElementById('gate').style.display='none'; if(!_loaded){ _loaded=true; load(); } }
+async function sha256hex(s){
+  if(window.crypto&&crypto.subtle){ var b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));
+    return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0');}).join(''); }
+  return null;
+}
+async function tryUnlock(){
+  var v=document.getElementById('gatePw').value;
+  var h=await sha256hex(v);
+  if(h===PW_HASH){ try{sessionStorage.setItem('pcmd_unlocked','1');}catch(e){} reveal(); }
+  else { document.getElementById('gateErr').textContent='비밀번호가 올바르지 않습니다.'; document.getElementById('gatePw').select(); }
+}
+document.getElementById('gateBtn').addEventListener('click',tryUnlock);
+document.getElementById('gatePw').addEventListener('keydown',function(e){ if(e.key==='Enter')tryUnlock(); });
+if(sessionStorage.getItem('pcmd_unlocked')==='1'){ reveal(); }
+else { setTimeout(function(){var f=document.getElementById('gatePw'); if(f)f.focus();},100); }
+</script>
+</body>
+</html>
