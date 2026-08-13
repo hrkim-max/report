@@ -644,19 +644,23 @@ function renderCategory(app){
 
 /* ---------- 제품별 (옵션별 포함) ---------- */
 function renderProduct(app){
-  var m=metric(), rows=fProd();
+  var m=metric();
+  var pdOn=STATE.proddaily&&STATE.proddaily.length;   // 일별 제품 데이터 여부
+  var rows= pdOn ? fProdDaily() : fProd();             // 있으면 일 단위 정확
   var map=sumBy(rows,function(r){return r.prod;});
   var catOf={}; rows.forEach(function(r){catOf[r.prod]=r.cat;});
   var arr=Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b[m]-a[m];});
   var total=arr.reduce(function(s,x){return s+x[m];},0)||1;
-  kpiMonthly(app,rows,'월 단위 · 기간이 걸친 월');
+  kpiMonthly(app,rows, pdOn?'선택 기간 (일 단위 정확)':'월 단위 · 기간이 걸친 월');
   var top=arr.slice(0,8).map(function(x){return x.key;});
-  var buckets=uniqYm(rows);
+  // 추이: 일별 데이터면 기간 길이에 따라 일/월 자동(STATE.gran), 아니면 월별
+  var byKey = pdOn ? function(r){return bucketOf(r.date);} : function(r){return r.ym;};
+  var buckets = pdOn ? uniqBuckets(rows) : uniqYm(rows);
   var series=top.map(function(pd,i){
-    var sm=sumBy(rows.filter(function(r){return r.prod===pd;}),function(r){return r.ym;});
+    var sm=sumBy(rows.filter(function(r){return r.prod===pd;}),byKey);
     return {name:pd,color:COLORS[i%COLORS.length],data:buckets.map(function(b){return sm[b]?sm[b][m]:0;})}; });
   var c1=el('div',{class:'card'});
-  c1.appendChild(el('h3',null,'제품별 매출 추이 <span class="h-sub">월별 · 상위 8개</span>'));
+  c1.appendChild(el('h3',null,'제품별 매출 추이 <span class="h-sub">'+(pdOn?(STATE.gran==='day'?'일별':'월별')+' (기간 따라 자동, 상단 일/월 버튼)':'월별')+' · 상위 8개</span>'));
   c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
   var c2=el('div',{class:'card'});
   c2.appendChild(el('h3',null,'제품별 매출 순위'));
