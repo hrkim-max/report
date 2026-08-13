@@ -121,6 +121,7 @@ svg{display:block;width:100%;height:auto}
   <div class="rangebar" id="rangeBar">
     <span class="small muted">기간</span>
     <span class="seg" id="presetSeg">
+      <button data-preset="today">오늘</button>
       <button data-preset="7d" class="on">최근 7일</button>
       <button data-preset="thismonth">이번달</button>
       <button data-preset="30">최근 30일</button>
@@ -210,6 +211,7 @@ var STATE = {
   surgeDim:'day', surgeCh:null,                        // 급상승: 분석 대상 + 채널 스코프
   tf:'', tfFocus:false,     // (구) 표 이름 필터
   sorts:{}, filters:{}, filterFocus:null, // 표별 독립 정렬/필터 상태(key 기반)
+  chSearch:'',              // 채널별 뷰 채널 체크박스 검색
   sortIdx:null, sortDir:-1,
   daily:[], cat:[], prod:[], opt:[], chprod:[],
   tOv:{},                   // 목표 오버라이드(localStorage)
@@ -227,6 +229,16 @@ function wonFull(n){ return Math.round(n||0).toLocaleString()+'원'; }
 function pct(n){ return (n>=0?'+':'')+n.toFixed(1)+'%'; }
 function el(tag,attrs,html){ var e=document.createElement(tag);
   if(attrs)for(var k in attrs)e.setAttribute(k,attrs[k]); if(html!=null)e.innerHTML=html; return e; }
+// 타이핑 검색 가능한 셀렉트(input+datalist). options=문자열 배열, onPick(선택값) 콜백.
+var _slid=0;
+function searchSelect(options, value, onPick, placeholder){
+  var id='dl'+(_slid++);
+  var inp=el('input',{class:'tinput',list:id,placeholder:placeholder||'검색/선택',style:'min-width:170px'}); inp.value=value||'';
+  var dl=el('datalist',{id:id});
+  options.forEach(function(o){ dl.appendChild(el('option',{value:o})); });
+  inp.onchange=function(){ if(options.indexOf(inp.value)>=0) onPick(inp.value); else inp.value=value||''; };
+  var span=el('span',{style:'display:inline-flex;align-items:center'}); span.appendChild(inp); span.appendChild(dl); return span;
+}
 function fmt(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function shiftYear(d,n){ var p=d.split('-'); return (parseInt(p[0],10)+n)+'-'+p[1]+'-'+p[2]; }
 function daysBetween(s,e){ return Math.round((new Date(e)-new Date(s))/864e5)+1; }
@@ -503,11 +515,16 @@ function renderChannel(app){
   var selCard=el('div',{class:'card'});
   selCard.appendChild(el('h3',null,'채널 선택 <span class="h-sub">보고 싶은 채널만 체크 (전체 해제 시 모두 표시) · 괄호=선택 기간 매출</span>'));
   var actbar=el('div',{class:'bar',style:'margin:0 0 6px'});
+  var sinp=el('input',{class:'tinput',placeholder:'채널 검색…'}); sinp.value=STATE.chSearch||''; sinp.setAttribute('data-fkey','chSearch');
+  sinp.oninput=function(){ STATE.chSearch=sinp.value; STATE.filterFocus='chSearch'; render(); };
+  actbar.appendChild(sinp);
+  if(STATE.chSearch){ var scl=el('button',{class:'btn'},'지우기'); scl.onclick=function(){STATE.chSearch='';STATE.filterFocus=null;render();}; actbar.appendChild(scl); }
   var bAll=el('button',{class:'btn'},'전체 선택'); bAll.onclick=function(){STATE.chSel=new Set(allArr);render();};
   var bNone=el('button',{class:'btn'},'전체 해제'); bNone.onclick=function(){STATE.chSel=null;render();};
   actbar.appendChild(bAll); actbar.appendChild(bNone); selCard.appendChild(actbar);
+  var q=(STATE.chSearch||'').toLowerCase();
   var chks=el('div',{class:'chks'});
-  allArr.forEach(function(ch){
+  allArr.filter(function(ch){return !q||ch.toLowerCase().indexOf(q)>=0;}).forEach(function(ch){
     var on=STATE.chSel?STATE.chSel.has(ch):false;
     var zero=chVal(ch)<=0;
     var lab=el('label',{class:'chk'+(on?' on':''),style:zero?'opacity:.55':''});
@@ -587,9 +604,9 @@ function renderCategory(app){
     var catsAvail=Object.keys(sumBy(crows,function(r){return r.cat;}));
     var pick=(STATE.catCh&&catsAvail.indexOf(STATE.catCh)>=0)?STATE.catCh:(arr[0]?arr[0].key:catsAvail[0]);
     var c3=el('div',{class:'card'}); var h=el('h3',null,'카테고리별 채널 비중 ');
-    var sel=el('select',{id:'catCh'});
-    arr.map(function(x){return x.key;}).filter(function(c){return catsAvail.indexOf(c)>=0;}).forEach(function(c){var op=el('option',{value:c},c);if(c===pick)op.selected=true;sel.appendChild(op);});
-    sel.onchange=function(){STATE.catCh=sel.value;render();}; h.appendChild(sel); h.appendChild(el('span',{class:'h-sub'},' 채널별 판매')); c3.appendChild(h);
+    var catOpts=arr.map(function(x){return x.key;}).filter(function(c){return catsAvail.indexOf(c)>=0;});
+    h.appendChild(searchSelect(catOpts, pick, function(v){STATE.catCh=v;render();}, '카테고리 검색/선택'));
+    h.appendChild(el('span',{class:'h-sub'},' 채널별 판매')); c3.appendChild(h);
     var chm=sumBy(crows.filter(function(r){return r.cat===pick;}),function(r){return chDisp(r.ch);});
     var charr=Object.keys(chm).map(function(k){return chm[k];}).sort(function(a,b){return b[m]-a[m];});
     var ctot=charr.reduce(function(s,x){return s+x[m];},0)||1;
@@ -629,10 +646,8 @@ function renderProduct(app){
   var detailProds=arr.map(function(x){return x.key;});
   if(detailProds.length){
     var pick=(STATE.pDetail&&detailProds.indexOf(STATE.pDetail)>=0)?STATE.pDetail:detailProds[0];
-    var bar=el('div',{class:'bar'}); bar.innerHTML='<span class="small muted">제품 상세</span> ';
-    var sel=el('select',{id:'pDetail'});
-    detailProds.forEach(function(p){var op=el('option',{value:p},p);if(p===pick)op.selected=true;sel.appendChild(op);});
-    sel.onchange=function(){STATE.pDetail=sel.value;render();}; bar.appendChild(sel);
+    var bar=el('div',{class:'bar'}); bar.appendChild(el('span',{class:'small muted'},'제품 상세'));
+    bar.appendChild(searchSelect(detailProds, pick, function(v){STATE.pDetail=v;render();}, '제품 검색/선택'));
     bar.appendChild(el('span',{class:'small muted'},'선택 제품의 채널·옵션 분해 (월 단위)'));
     app.appendChild(bar);
 
@@ -677,10 +692,8 @@ function renderSurge(app){
   [['day','급상승 일자'],['product','급상승 제품'],['category','급상승 카테고리']].forEach(function(d){ var b=el('button',null,d[1]); if(STATE.surgeDim===d[0])b.className='on'; b.onclick=function(){STATE.surgeDim=d[0]; STATE.sortIdx=null; STATE.tf=''; STATE.tfFocus=false; render();}; seg.appendChild(b); });
   bar.appendChild(seg);
   bar.appendChild(el('span',{class:'small muted'},'채널'));
-  var csel=el('select',{id:'surgeCh'});
-  var opAll=el('option',{value:''},'전체 채널'); if(!scope)opAll.selected=true; csel.appendChild(opAll);
-  chList.forEach(function(ch){ var op=el('option',{value:ch},ch); if(ch===scope)op.selected=true; csel.appendChild(op); });
-  csel.onchange=function(){STATE.surgeCh=csel.value||null; render();}; bar.appendChild(csel);
+  var chOpts=['전체 채널'].concat(chList);
+  bar.appendChild(searchSelect(chOpts, scope||'전체 채널', function(v){STATE.surgeCh=(v==='전체 채널')?null:v; render();}, '채널 검색/선택'));
   app.appendChild(bar);
 
   if(STATE.surgeDim==='day') surgeDay(app,scope);
@@ -977,7 +990,8 @@ function donut(arr,total){
 function applyPreset(p){
   STATE.preset=p;
   var max=STATE.maxDate, e=new Date(max), s;
-  if(p==='7d'){ s=new Date(e); s.setDate(s.getDate()-6); STATE.start=fmt(s); STATE.end=max; }
+  if(p==='today'){ STATE.start=max; STATE.end=max; }
+  else if(p==='7d'){ s=new Date(e); s.setDate(s.getDate()-6); STATE.start=fmt(s); STATE.end=max; }
   else if(p==='thismonth'){ STATE.start=max.slice(0,7)+'-01'; STATE.end=max; }
   else if(p==='30'){ s=new Date(e); s.setDate(s.getDate()-29); STATE.start=fmt(s); STATE.end=max; }
   else if(p==='60'){ s=new Date(e); s.setDate(s.getDate()-59); STATE.start=fmt(s); STATE.end=max; }
