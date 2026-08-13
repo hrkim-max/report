@@ -107,7 +107,6 @@ svg{display:block;width:100%;height:auto}
     <div class="seg" id="viewSeg">
       <button data-v="overview" class="on">개요·추이</button>
       <button data-v="channel">채널별</button>
-      <button data-v="category">카테고리별</button>
       <button data-v="product">제품별</button>
       <button data-v="surge">급상승</button>
       <button data-v="target">목표 대비</button>
@@ -165,6 +164,7 @@ var CONFIG = {
   GID_OPT:   "760594388",    // agg_opt 탭 gid (옵션별)
   GID_META:  "1069750530",   // meta 탭 gid (업데이트 시각)
   GID_CHPROD:"2069552888",   // agg_chprod 탭 gid (채널×제품 교차)
+  GID_PRODDAILY:"1159266012",// agg_prod_daily 탭 gid (날짜×제품 일별)
   REFRESH_URL:"https://script.google.com/macros/s/AKfycbwoFFhtXYcuU5VJvrXx29liVUkhApC-3oi-mnLwGPMX89wD1yc_G8kIfCB7ZoTIwJdTcQ/exec",  // 집계 웹앱 /exec — '데이터 갱신' 버튼용
 
   CH_ALIAS: {
@@ -213,7 +213,7 @@ var STATE = {
   sorts:{}, filters:{}, filterFocus:null, // 표별 독립 정렬/필터 상태(key 기반)
   chSearch:'',              // 채널별 뷰 채널 체크박스 검색
   sortIdx:null, sortDir:-1,
-  daily:[], cat:[], prod:[], opt:[], chprod:[],
+  daily:[], cat:[], prod:[], opt:[], chprod:[], proddaily:null, _pdLoading:false,
   tOv:{},                   // 목표 오버라이드(localStorage)
   loaded:false, usingMock:false
 };
@@ -282,6 +282,17 @@ function fetchCSV(gid){
   return fetch(url).then(function(r){ if(!r.ok)throw r.status; return r.text(); });
 }
 function fetchOpt(gid){ return gid? fetchCSV(gid).catch(function(){return '';}) : Promise.resolve(''); }
+// 제품 일별(날짜×제품) — 용량이 커서 제품별 탭 첫 진입 시 지연 로드
+function ensureProdDaily(){
+  if(STATE.proddaily!==null || STATE._pdLoading || !CONFIG.GID_PRODDAILY) return;
+  STATE._pdLoading=true;
+  fetchCSV(CONFIG.GID_PRODDAILY).then(function(t){
+    STATE.proddaily=csvToObjects(t).map(function(o){return {date:normDate(o['날짜']), prod:o['제품']||'', cat:o['카테고리']||'',
+      qty:toNum(o['수량']), cnt:toNum(o['건수']), sales:toNum(o['매출']), pay:toNum(o['결제가'])};}).filter(function(r){return r.date;});
+    STATE._pdLoading=false; render();
+  }).catch(function(){ STATE.proddaily=[]; STATE._pdLoading=false; render(); });
+}
+function fProdDaily(){ return (STATE.proddaily||[]).filter(function(r){return inRange(r.date);}); }
 function load(){
   try{ STATE.tOv=JSON.parse(localStorage.getItem('salesTargetOverrides')||'{}'); }catch(e){ STATE.tOv={}; }
   Promise.all([
@@ -653,8 +664,20 @@ function renderProduct(app){
     var pick=(STATE.pDetail&&detailProds.indexOf(STATE.pDetail)>=0)?STATE.pDetail:detailProds[0];
     var bar=el('div',{class:'bar'}); bar.appendChild(el('span',{class:'small muted'},'제품 상세'));
     bar.appendChild(searchSelect(detailProds, pick, function(v){STATE.pDetail=v;render();}, '제품 검색/선택'));
-    bar.appendChild(el('span',{class:'small muted'},'선택 제품의 채널·옵션 분해 (월 단위)'));
+    bar.appendChild(el('span',{class:'small muted'},'선택 제품의 일별 추이 + 채널·옵션 분해'));
     app.appendChild(bar);
+
+    // 제품 일별 매출 추이 (agg_prod_daily, 지연 로드)
+    ensureProdDaily();
+    var dc0=el('div',{class:'card'});
+    dc0.appendChild(el('h3',null,pick+' · 일별 매출 추이 <span class="h-sub">선택 기간 · 일 단위</span>'));
+    if(!CONFIG.GID_PRODDAILY) dc0.appendChild(el('div',{class:'notice small',style:'margin:0'},'제품 일별 추이는 집계 스크립트 재실행(날짜×제품 집계 추가) 후 활성화됩니다.'));
+    else if(STATE.proddaily===null) dc0.appendChild(el('div',{class:'small muted'},'제품 일별 데이터 불러오는 중…'));
+    else { var pdr=fProdDaily().filter(function(r){return r.prod===pick;});
+      var dm=sumBy(pdr,function(r){return r.date;}); var bks=Object.keys(dm).sort();
+      if(!bks.length) dc0.appendChild(el('div',{class:'small muted'},'선택 기간에 이 제품의 판매 데이터가 없습니다.'));
+      else dc0.appendChild(lineChart(bks,[{name:pick,data:bks.map(function(b){return dm[b][m];}),color:COLORS[0]}])); }
+    app.appendChild(dc0);
 
     var g=el('div',{class:'grid2'});
     // 채널별 (agg_chprod)
@@ -964,7 +987,7 @@ function lineChart(labels,series){
     svg+='<text x="'+(pad.l-8)+'" y="'+(y+4)+'" fill="var(--sub)" font-size="11" text-anchor="end">'+won(val)+'</text>';}
   var step=Math.max(1,Math.ceil(n/12));
   for(var i=0;i<n;i++){ if(i%step!==0&&i!==n-1)continue; var x=pad.l+dx*i;
-    var lab=labels[i]; if(STATE.gran==='day')lab=lab.slice(5); else lab=lab.slice(2);
+    var lab=labels[i]; lab = lab.length>7 ? lab.slice(5) : lab.slice(2);
     svg+='<text x="'+x+'" y="'+(H-pad.b+18)+'" fill="var(--sub)" font-size="10" text-anchor="middle">'+lab+'</text>';}
   series.forEach(function(s){
     var pts=s.data.map(function(v,i){return [pad.l+dx*i, pad.t+ih*(1-(v/maxV))];});
