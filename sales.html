@@ -297,7 +297,8 @@ function load(){
   try{ STATE.tOv=JSON.parse(localStorage.getItem('salesTargetOverrides')||'{}'); }catch(e){ STATE.tOv={}; }
   Promise.all([
     fetchCSV(CONFIG.GID_DAILY), fetchCSV(CONFIG.GID_CAT), fetchCSV(CONFIG.GID_PROD),
-    fetchOpt(CONFIG.GID_OPT), fetchOpt(CONFIG.GID_META), fetchOpt(CONFIG.GID_CHPROD)
+    fetchOpt(CONFIG.GID_OPT), fetchOpt(CONFIG.GID_META), fetchOpt(CONFIG.GID_CHPROD),
+    fetchOpt(CONFIG.GID_PRODDAILY)
   ]).then(function(res){
     STATE.daily = csvToObjects(res[0]).map(function(o){return {
       date:normDate(o['날짜']), ch:o['채널'], qty:toNum(o['수량']), cnt:toNum(o['건수']),
@@ -315,6 +316,8 @@ function load(){
       ym:normYm(o['년월']), ch:o['채널'], cat:o['카테고리']||'', prod:o['제품']||'', qty:toNum(o['수량']), cnt:toNum(o['건수']),
       sales:toNum(o['매출']), pay:toNum(o['결제가']) };}).filter(function(r){return r.ym;}) : [];
     STATE.meta = res[4]? parseMeta(res[4]) : null;
+    STATE.proddaily = res[6]? csvToObjects(res[6]).map(function(o){return {date:normDate(o['날짜']), prod:o['제품']||'', cat:o['카테고리']||'',
+      qty:toNum(o['수량']), cnt:toNum(o['건수']), sales:toNum(o['매출']), pay:toNum(o['결제가'])};}).filter(function(r){return r.date;}) : [];
     STATE.loaded=true; STATE.usingMock=false;
     afterLoad();
   }).catch(function(e){
@@ -497,10 +500,14 @@ function renderOverview(app){
   kpiRow(app,null);
   var m=metric(), rows=fDaily();
   app.appendChild(trendCard('매출 추이',(STATE.gran==='month'?'월별':'일별'),rows,null));
+  // 카테고리·제품 비중도 일별 데이터(agg_prod_daily)로 계산 → 채널 비중과 기간·합계 일치
+  var pdOn=STATE.proddaily&&STATE.proddaily.length;
+  var catSrc=pdOn?sumBy(fProdDaily(),function(r){return r.cat;}):sumBy(fCat(),function(r){return r.cat;});
+  var prodSrc=pdOn?sumBy(fProdDaily(),function(r){return r.prod;}):sumBy(fProd(),function(r){return r.prod;});
   var g=el('div',{class:'grid3'});
   g.appendChild(shareCard('채널 비중',topShare(sumBy(rows,function(r){return chDisp(r.ch);}),m,8)));
-  g.appendChild(shareCard('카테고리 비중',topShare(sumBy(fCat(),function(r){return r.cat;}),m,8)));
-  g.appendChild(shareCard('제품 비중',topShare(sumBy(fProd(),function(r){return r.prod;}),m,8)));
+  g.appendChild(shareCard('카테고리 비중',topShare(catSrc,m,8)));
+  g.appendChild(shareCard('제품 비중',topShare(prodSrc,m,8)));
   app.appendChild(g);
 }
 function topShare(map,m,n){
@@ -990,7 +997,7 @@ function lineChart(labels,series){
     var lab=labels[i]; lab = lab.length>7 ? lab.slice(5) : lab.slice(2);
     svg+='<text x="'+x+'" y="'+(H-pad.b+18)+'" fill="var(--sub)" font-size="10" text-anchor="middle">'+lab+'</text>';}
   series.forEach(function(s){
-    var pts=s.data.map(function(v,i){return [pad.l+dx*i, pad.t+ih*(1-(v/maxV))];});
+    var pts=s.data.map(function(v,i){return [pad.l+(n>1?dx*i:iw/2), pad.t+ih*(1-(v/maxV))];});
     if(n>1){ var d=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1);}).join(' ');
       svg+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2.2"'+(s.dash?' stroke-dasharray="5 4" opacity="0.8"':'')+'/>'; }
     pts.forEach(function(p,i){
