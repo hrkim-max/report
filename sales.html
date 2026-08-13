@@ -75,7 +75,7 @@ svg{display:block;width:100%;height:auto}
 .btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
 .btn:hover{border-color:var(--accent)}
 .btn.pri{background:var(--accent);color:#08101f;border-color:var(--accent);font-weight:700}
-.tnum{width:120px;text-align:right;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:4px 7px;font-size:13px}
+.tnum{width:150px;text-align:right;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:4px 7px;font-size:13px}
 .xbtn{background:transparent;border:0;color:var(--sub);cursor:pointer;font-size:14px}
 .xbtn:hover{color:var(--bad)}
 #chartTip{position:fixed;pointer-events:none;background:#0b0e13;border:1px solid var(--line);border-radius:8px;
@@ -177,7 +177,7 @@ var CONFIG = {
     "SSG":"SSG", "오늘의집":"오늘의집", "토스쇼핑":"토스쇼핑",
     "전화":"전화"
   },
-  CH_MERGE: { "쿠팡(로)":"쿠팡", "쿠팡(윙)":"쿠팡" },
+  CH_MERGE: { "29cm":"29CM" },  // 채널 표시 통합(대소문자 이표기만). 예: "쿠팡(로)":"쿠팡"
   CH_EXCLUDE: [],
 
   TARGETS: {
@@ -206,7 +206,7 @@ var STATE = {
   cmp:'prev', cmpStart:null, cmpEnd:null,
   chSel:null,               // 채널별 뷰 선택(Set|null=전체)
   pDetail:null, catCh:null, tMonth:null, sMonth:null, // 각 뷰 드롭다운 선택값
-  tMode:'month', tFilter:'', tfFocus2:false,          // 목표 대비: 월별/연간 모드 + 채널 검색
+  tMode:'month', tYear:null, tFilter:'', tfFocus2:false, // 목표 대비: 월별/연간 모드 + 연도 + 채널 검색
   tf:'', tfFocus:false,     // 표 이름 필터
   sortIdx:null, sortDir:-1,
   daily:[], cat:[], prod:[], opt:[], chprod:[],
@@ -228,6 +228,8 @@ function el(tag,attrs,html){ var e=document.createElement(tag);
 function fmt(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function shiftYear(d,n){ var p=d.split('-'); return (parseInt(p[0],10)+n)+'-'+p[1]+'-'+p[2]; }
 function daysBetween(s,e){ return Math.round((new Date(e)-new Date(s))/864e5)+1; }
+function monthRange(s,e){ var out=[],y=+s.slice(0,4),m=+s.slice(5,7),ey=+e.slice(0,4),em=+e.slice(5,7);
+  while(y<ey||(y===ey&&m<=em)){ out.push(y+'-'+pz(m)); m++; if(m>12){m=1;y++;} } return out; }
 
 function parseCSV(text){
   var rows=[],row=[],cur='',q=false;
@@ -741,10 +743,10 @@ function effTarget(grp,ym){
   if(o&&Object.prototype.hasOwnProperty.call(o,ym)){ var v=o[ym]; return (v===''||v==null)?null:Number(v); }
   var d=CONFIG.TARGETS[grp]; return (d&&d[ym]!=null)?d[ym]:null;
 }
-function effAnnual(grp,monthList){
-  var o=STATE.tOv[grp];
-  if(o&&Object.prototype.hasOwnProperty.call(o,'_year')){ var v=o['_year']; return (v===''||v==null)?null:Number(v); }
-  var sum=0,has=false; monthList.forEach(function(ym){ var t=effTarget(grp,ym); if(t!=null){sum+=t;has=true;} });
+function effAnnual(grp,year){
+  var o=STATE.tOv[grp], k='_y'+year;
+  if(o&&Object.prototype.hasOwnProperty.call(o,k)){ var v=o[k]; return (v===''||v==null)?null:Number(v); }
+  var sum=0,has=false; for(var m=1;m<=12;m++){ var t=effTarget(grp,year+'-'+pz(m)); if(t!=null){sum+=t;has=true;} }
   return has?sum:null;
 }
 function setOverride(grp,ym,val){ if(!STATE.tOv[grp])STATE.tOv[grp]={}; STATE.tOv[grp][ym]=val; }
@@ -760,10 +762,18 @@ function renderTarget(app){
     var k=grp+'|'+r.date.slice(0,7); (actual[k]=actual[k]||{s:0}).s+=r.sales; });
   var monthsSet={}; targetGroups().forEach(function(g){
     var dd=CONFIG.TARGETS[g]||{}; Object.keys(dd).forEach(function(ym){monthsSet[ym]=1;});
-    var ov=STATE.tOv[g]||{}; Object.keys(ov).forEach(function(ym){ if(ym!=='_year')monthsSet[ym]=1;}); });
-  var monthList=Object.keys(monthsSet).sort();
+    var ov=STATE.tOv[g]||{}; Object.keys(ov).forEach(function(ym){ if(ym.charAt(0)!=='_')monthsSet[ym]=1;}); });
+  var ks=Object.keys(monthsSet).sort();
+  var monthList;
+  if(ks.length){ var minY=ks[0].slice(0,4)+'-01', maxY=ks[ks.length-1]; if(maxY<minY)maxY=minY; monthList=monthRange(minY,maxY); }
+  else monthList=[];
   var groups=targetGroups().sort();
   var isYear=STATE.tMode==='year';
+  // 연도 목록(목표월 + 데이터 연도)
+  var yearsSet={}; monthList.forEach(function(ym){yearsSet[ym.slice(0,4)]=1;}); STATE.daily.forEach(function(r){ if(notExcl(r))yearsSet[r.date.slice(0,4)]=1; });
+  var yearList=Object.keys(yearsSet).sort();
+  var pickY=(STATE.tYear&&yearList.indexOf(STATE.tYear)>=0)?STATE.tYear:STATE.maxDate.slice(0,4);
+  if(yearList.indexOf(pickY)<0)pickY=yearList[yearList.length-1]||STATE.maxDate.slice(0,4);
 
   // 컨트롤 바
   var bar=el('div',{class:'bar'});
@@ -776,6 +786,9 @@ function renderTarget(app){
     if(!pick){ var avail=monthList.filter(function(ym){return ym<=STATE.maxDate;}); pick=avail[avail.length-1]||monthList[monthList.length-1]||monthList[0]; }
     bar.appendChild(el('span',{class:'small muted'},'기준 월'));
     var msel=el('select',{id:'tMonth'}); monthList.forEach(function(ym){var op=el('option',{value:ym},ym);if(ym===pick)op.selected=true;msel.appendChild(op);}); msel.onchange=function(){STATE.tMonth=msel.value;render();}; bar.appendChild(msel);
+  } else {
+    bar.appendChild(el('span',{class:'small muted'},'연도'));
+    var ysel=el('select',{id:'tYear'}); yearList.forEach(function(y){var op=el('option',{value:y},y+'년');if(y===pickY)op.selected=true;ysel.appendChild(op);}); ysel.onchange=function(){STATE.tYear=ysel.value;render();}; bar.appendChild(ysel);
   }
   var fin=el('input',{class:'tinput',id:'tFilterInp',placeholder:'채널 검색…'}); fin.value=STATE.tFilter||'';
   fin.oninput=function(){STATE.tFilter=fin.value;STATE.tfFocus2=true;render();};
@@ -791,14 +804,16 @@ function renderTarget(app){
   var shown=groups.filter(function(g){ return !flt || g.toLowerCase().indexOf(flt)>=0; });
 
   var data=shown.map(function(grp){
-    var tgt=isYear?effAnnual(grp,monthList):effTarget(grp,pick);
-    var act=isYear?monthList.reduce(function(s,ym){return s+(actual[grp+'|'+ym]?actual[grp+'|'+ym].s:0);},0):(actual[grp+'|'+pick]?actual[grp+'|'+pick].s:0);
+    var tgt=isYear?effAnnual(grp,pickY):effTarget(grp,pick);
+    var act;
+    if(isYear){ act=0; for(var m=1;m<=12;m++){ var kk=grp+'|'+(pickY+'-'+pz(m)); if(actual[kk])act+=actual[kk].s; } }
+    else act=(actual[grp+'|'+pick]?actual[grp+'|'+pick].s:0);
     return {grp:grp,tgt:tgt,act:act};
   }).filter(function(x){ return x.tgt!=null || x.act>0; });
   data.sort(function(a,b){return (b.tgt||0)-(a.tgt||0);});
   var sumT=data.reduce(function(s,x){return s+(x.tgt||0);},0);
   var sumA=data.reduce(function(s,x){return s+x.act;},0);
-  var lab=isYear?'연간(전체)':pick;
+  var lab=isYear?(pickY+'년'):pick;
 
   var box=el('div',{class:'kpis'});
   box.appendChild(kpi(lab+' 목표 합계',wonFull(sumT),null,'',null));
@@ -815,8 +830,10 @@ function renderTarget(app){
   data.forEach(function(x){
     var tr=el('tr');
     var tdCh=el('td',null,x.grp);
-    var tdTgt=el('td'); var inp=el('input',{class:'tnum',type:'number',placeholder:'—',value:(x.tgt==null?'':x.tgt)});
-    inp.onchange=function(){ setOverride(x.grp,isYear?'_year':pick,inp.value===''?'':Number(inp.value)); render(); };
+    var tdTgt=el('td'); var inp=el('input',{class:'tnum',type:'text',inputmode:'numeric',placeholder:'—'});
+    inp.value=(x.tgt==null?'':Number(x.tgt).toLocaleString());
+    inp.oninput=function(){ var d=inp.value.replace(/[^0-9]/g,''); inp.value=d?Number(d).toLocaleString():''; };
+    inp.onchange=function(){ var d=inp.value.replace(/[^0-9]/g,''); setOverride(x.grp,isYear?('_y'+pickY):pick,d===''?'':Number(d)); render(); };
     tdTgt.appendChild(inp);
     var rate=x.tgt?x.act/x.tgt*100:null;
     var tdAct=el('td',null,wonFull(x.act));
@@ -829,7 +846,7 @@ function renderTarget(app){
   trS.innerHTML='<td>합계</td><td>'+wonFull(sumT)+'</td><td>'+wonFull(sumA)+'</td><td>'+(sumT?(sumA/sumT*100).toFixed(0)+'%':'-')+'</td><td></td>';
   tb.appendChild(trS);
   t.appendChild(tb); var w=el('div',{class:'tbl-wrap'}); w.appendChild(t); c.appendChild(w);
-  if(isYear) c.appendChild(el('div',{class:'small muted',style:'margin-top:8px'},'※ 연간 실적 = 목표가 설정된 월들의 실적 합계. 연간 목표를 비우면 월별 목표 합계가 자동 표시됩니다.'));
+  if(isYear) c.appendChild(el('div',{class:'small muted',style:'margin-top:8px'},'※ '+pickY+'년 1~12월 기준. 실적 = 해당 연도 실적 합계. 연간 목표를 비우면 그 해 월별 목표 합계가 자동 표시됩니다.'));
   if(STATE.usingMock) c.appendChild(el('div',{class:'small muted',style:'margin-top:8px'},'※ 샘플 데이터 기준 예시입니다.'));
   app.appendChild(c);
 
