@@ -208,7 +208,7 @@ var STATE = {
   chSel:null,               // 채널별 뷰 선택(Set|null=전체)
   pDetail:null, catCh:null, tMonth:null, sMonth:null, // 각 뷰 드롭다운 선택값
   tMode:'month', tYear:null, tFilter:'', tfFocus2:false, // 목표 대비: 월별/연간 모드 + 연도 + 채널 검색
-  surgeDim:'day', surgeCh:null,                        // 급상승: 분석 대상 + 채널 스코프
+  surgeDim:'day', surgeCh:null, surgeChTop:1,           // 급상승: 분석 대상 + 채널 스코프 + 일자별 채널 표시 수(1/3/0=전체)
   tf:'', tfFocus:false,     // (구) 표 이름 필터
   sorts:{}, filters:{}, filterFocus:null, // 표별 독립 정렬/필터 상태(key 기반)
   chSearch:'',              // 채널별 뷰 채널 체크박스 검색
@@ -747,8 +747,7 @@ function surgeDay(app,scope){
   var days=Object.keys(dmap).sort(), spikes=[];
   for(var i=0;i<days.length;i++){ var d=days[i]; if(!inRange(d))continue; if(i<W)continue;
     var base=0; for(var j=i-W;j<i;j++)base+=dmap[days[j]]; base/=W; if(base<=0)continue;
-    var topch=''; if(!scope){ var cm=chByDay[d]||{}, best=-1; Object.keys(cm).forEach(function(k){if(cm[k]>best){best=cm[k];topch=k;}}); }
-    spikes.push({date:d,dow:dow(d),val:dmap[d],base:base,over:(dmap[d]/base-1)*100,topch:topch}); }
+    spikes.push({date:d,dow:dow(d),val:dmap[d],base:base,over:(dmap[d]/base-1)*100,chs:(!scope?(chByDay[d]||{}):null)}); }
   var top=spikes.slice().sort(function(a,b){return b.over-a.over;})[0];
   var strong=spikes.filter(function(s){return s.over>=50;}).length;
   var box=el('div',{class:'kpis'});
@@ -758,11 +757,20 @@ function surgeDay(app,scope){
   app.appendChild(box);
   var c=el('div',{class:'card'});
   c.appendChild(el('h3',null,'급상승 일자 <span class="h-sub">'+(scope||'전체 채널')+' · 직전 '+W+'일 평균 대비 · 헤더 클릭 정렬</span>'));
+  if(!scope){
+    var tg=el('div',{class:'bar',style:'margin:0 0 8px'});
+    tg.appendChild(el('span',{class:'small muted'},'채널 표시'));
+    var seg=el('div',{class:'seg'});
+    [[1,'최다 1개'],[3,'상위 3개'],[0,'전체']].forEach(function(o){ var b=el('button',null,o[1]); if(STATE.surgeChTop===o[0])b.className='on'; b.onclick=function(){STATE.surgeChTop=o[0];render();}; seg.appendChild(b); });
+    tg.appendChild(seg); c.appendChild(tg);
+  }
   if(!spikes.length) c.appendChild(el('div',{class:'small muted'},'선택 기간이 짧거나 기준 데이터가 부족합니다. 상단 기간을 넓혀보세요(최근 30·60·90일).'));
   else {
-    var headers=scope?['날짜','요일','매출','직전평균','초과율']:['날짜','요일','매출','직전평균','초과율','최다 채널'];
+    var n=STATE.surgeChTop;
+    var chStr=function(cm,tot){ if(!cm)return ''; var a=Object.keys(cm).map(function(k){return {c:k,v:cm[k]};}).sort(function(x,y){return y.v-x.v;}); if(n>0)a=a.slice(0,n); return a.map(function(x){return x.c+' '+(tot?(x.v/tot*100).toFixed(0):0)+'%';}).join(', '); };
+    var headers=scope?['날짜','요일','매출','직전평균','초과율']:['날짜','요일','매출','직전평균','초과율','채널 구성'];
     var types=scope?[null,null,'won','won','pct']:[null,null,'won','won','pct',null];
-    var rows=spikes.map(function(s){ return scope?[s.date,s.dow,s.val,s.base,s.over]:[s.date,s.dow,s.val,s.base,s.over,s.topch]; });
+    var rows=spikes.map(function(s){ return scope?[s.date,s.dow,s.val,s.base,s.over]:[s.date,s.dow,s.val,s.base,s.over,chStr(s.chs,s.val)]; });
     c.appendChild(tableOf(headers,rows,types,'surge_day','초과율'));
   }
   app.appendChild(c);
