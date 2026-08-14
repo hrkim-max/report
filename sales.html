@@ -208,7 +208,7 @@ var STATE = {
   preset:'7d', start:null, end:null,
   cmp:'prev', cmpStart:null, cmpEnd:null,
   chSel:null,               // 채널별 뷰 선택(Set|null=전체)
-  pDetail:null, catCh:null, tMonth:null, sMonth:null, // 각 뷰 드롭다운 선택값
+  pDetail:null, catCh:null, tMonth:null, sMonth:null, chPick:null, // 각 뷰 선택값(제품/카테고리/월/클릭 채널)
   tMode:'month', tYear:null, tFilter:'', tfFocus2:false, // 목표 대비: 월별/연간 모드 + 연도 + 채널 검색
   surgeDim:'day', surgeCh:null, surgeChTop:1, surgeDayPick:null, // 급상승: 분석 대상 + 채널 스코프 + 선택 일자(하단 채널 상세)
   tf:'', tfFocus:false,     // (구) 표 이름 필터
@@ -576,27 +576,34 @@ function renderChannel(app){
   c1.appendChild(el('h3',null,'채널별 매출 추이 <span class="h-sub">선택 채널 중 상위 6개</span>'));
   c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
 
+  var chNames=arr.map(function(x){return x.key;});
+  var chPick=(STATE.chPick&&chNames.indexOf(STATE.chPick)>=0)?STATE.chPick:(chNames[0]||null);
   var c2=el('div',{class:'card'});
-  c2.appendChild(el('h3',null,'채널별 매출 <span class="h-sub">'+arr.length+'개 채널</span>'));
+  c2.appendChild(el('h3',null,'채널별 매출 <span class="h-sub">'+arr.length+'개 채널 · 헤더 클릭 정렬 · <b>채널 클릭 시 아래에 제품 상세</b></span>'));
   c2.appendChild(tableOf(['채널','매출','비중','건수','수량','건단가'],
     arr.map(function(x){return [x.key,x[m],x[m]/total,x.cnt,x.qty,x.cnt?x[m]/x.cnt:0];}),
-    [null,'won','share','num','num','won'], 'ch_main'));
+    [null,'won','share','num','num','won'], 'ch_main','매출',false,{
+      onRowClick:function(r){ STATE.chPick=r[0]; render(); },
+      isActive:function(r){ return r[0]===chPick; }
+    }));
   app.appendChild(c2);
 
-  // 선택 채널의 제품 판매 내역 (채널×제품 교차, agg_chprod)
-  if(STATE.chprod.length){
-    var crows=fChprod().filter(function(r){ return !STATE.chSel || STATE.chSel.has(chDisp(r.ch)); });
+  // 클릭한 채널의 제품 판매 내역 (채널×제품 교차, agg_chprod)
+  if(STATE.chprod.length && chPick){
+    var crows=fChprod().filter(function(r){ return chDisp(r.ch)===chPick; });
     var pmap=sumBy(crows,function(r){return r.prod;});
     var catOf={}; crows.forEach(function(r){catOf[r.prod]=r.cat;});
     var parr=Object.keys(pmap).map(function(k){return pmap[k];}).sort(function(a,b){return b[m]-a[m];});
     var ptot=parr.reduce(function(s,x){return s+x[m];},0)||1;
+    var ctv=arr.filter(function(x){return x.key===chPick;})[0];
     var c3=el('div',{class:'card'});
-    c3.appendChild(el('h3',null,(STATE.chSel?'선택 채널':'전체 채널')+'의 제품 판매 내역 <span class="h-sub">월 단위 · '+parr.length+'개 제품</span>'));
-    c3.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
+    c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">월 단위 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+'</span>'));
+    if(!parr.length) c3.appendChild(el('div',{class:'small muted'},'해당 채널의 제품 데이터가 없습니다(월 단위 집계 기준).'));
+    else c3.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
       parr.map(function(x){return [x.key,catOf[x.key]||'',x[m],x[m]/ptot,x.cnt,x.qty];}),
       [null,null,'won','share','num','num'], 'ch_prod'));
     app.appendChild(c3);
-  } else {
+  } else if(!STATE.chprod.length) {
     app.appendChild(el('div',{class:'notice small'},'채널 안의 제품 판매 내역은 집계 스크립트 재실행(채널×제품 차원 추가) 후 활성화됩니다.'));
   }
 }
@@ -653,6 +660,8 @@ function renderProduct(app){
   var catOf={}; rows.forEach(function(r){catOf[r.prod]=r.cat;});
   var arr=Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b[m]-a[m];});
   var total=arr.reduce(function(s,x){return s+x[m];},0)||1;
+  var detailProds=arr.map(function(x){return x.key;});
+  var pPick=(STATE.pDetail&&detailProds.indexOf(STATE.pDetail)>=0)?STATE.pDetail:(detailProds[0]||null);
   kpiMonthly(app,rows, pdOn?'선택 기간 (일 단위 정확)':'월 단위 · 기간이 걸친 월');
   var top=arr.slice(0,8).map(function(x){return x.key;});
   // 추이: 일별 데이터면 기간 길이에 따라 일/월 자동(STATE.gran), 아니면 월별
@@ -665,20 +674,18 @@ function renderProduct(app){
   c1.appendChild(el('h3',null,'제품별 매출 추이 <span class="h-sub">'+(pdOn?(STATE.gran==='day'?'일별':'월별')+' (기간 따라 자동, 상단 일/월 버튼)':'월별')+' · 상위 8개</span>'));
   c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
   var c2=el('div',{class:'card'});
-  c2.appendChild(el('h3',null,'제품별 매출 순위'));
+  c2.appendChild(el('h3',null,'제품별 매출 순위 <span class="h-sub">헤더 클릭 정렬 · <b>제품 클릭 시 아래에 상세(추이·채널·옵션)</b></span>'));
   c2.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
     arr.map(function(x){return [x.key,catOf[x.key]||'',x[m],x[m]/total,x.cnt,x.qty];}),
-    [null,null,'won','share','num','num'], 'prod_main'));
+    [null,null,'won','share','num','num'], 'prod_main','매출',false,{
+      onRowClick:function(r){ STATE.pDetail=r[0]; render(); },
+      isActive:function(r){ return r[0]===pPick; }
+    }));
   app.appendChild(c2);
 
-  // ===== 제품 상세: 선택 제품의 채널별 + 옵션별 매출 =====
-  var detailProds=arr.map(function(x){return x.key;});
-  if(detailProds.length){
-    var pick=(STATE.pDetail&&detailProds.indexOf(STATE.pDetail)>=0)?STATE.pDetail:detailProds[0];
-    var bar=el('div',{class:'bar'}); bar.appendChild(el('span',{class:'small muted'},'제품 상세'));
-    bar.appendChild(searchSelect(detailProds, pick, function(v){STATE.pDetail=v;render();}, '제품 검색/선택'));
-    bar.appendChild(el('span',{class:'small muted'},'선택 제품의 일별 추이 + 채널·옵션 분해'));
-    app.appendChild(bar);
+  // ===== 제품 상세: 클릭한 제품의 일별 추이 + 채널별 + 옵션별 매출 =====
+  if(pPick){
+    var pick=pPick;
 
     // 제품 일별 매출 추이 (agg_prod_daily, 지연 로드)
     ensureProdDaily();
