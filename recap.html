@@ -135,9 +135,9 @@ svg{display:block;width:100%;height:auto}
     <span class="small muted">시즌 기간</span>
     <input type="date" id="dStart"><span class="muted">~</span><input type="date" id="dEnd">
     <span class="seg" id="presetSeg">
-      <button data-p="summer" class="on">여름(5~8월)</button>
+      <button data-p="season" class="on">시즌 전체(4/1~8/17)</button>
+      <button data-p="summer">여름(5/1~8/17)</button>
       <button data-p="core">성수기(6~7월)</button>
-      <button data-p="full">시즌 전체(4~9월)</button>
     </span>
     <span class="seg" id="metricSeg" title="집계 기준 금액">
       <button data-m="sales" class="on">매출</button>
@@ -195,18 +195,23 @@ var CONFIG = {
   ],
 
   // 섹션 코멘트 기본값. '📤 코멘트 내보내기'로 받은 객체를 여기 붙여 넣으면 기본값으로 영구 반영됩니다.
-  NOTES: {}
+  NOTES: {
+    "overall": {
+      "text": "스토어팜\n- 5월 냉감베개커버 슈퍼적립 선정되며 여름 시즌 초반 유입수 확보 가능\n- 5~7월 여름 침구 중심 라이브 진행하며 제품 안내 및 전환 유입 긍정적 영향 있었을 것 \n  ㄴ 시즌에 맞는 라이브 구성 필요\n- \n\n\n29CM\n- 5월 쇼케이스 시작으로 프로젝트슬립 브랜드 유입, 관심도 확보 (브랜드 노출량 ↑)\n- 6월 ~ 7월 이어지는 대형 기획전에 긍정적 영향\n- 6월 ~ 7월 여름 상품 광고 캠페인 광고비 증액 → 유입 및 전환 확보되며 자연 매출에도 긍정적 영향\n- 29CM 브랜드(자사) 인풋에 따라 노출수 차이 발생 → PS 노출수 많은 편으로 프로모션/상품 광고 등 인풋 유지 잘하고 있던 상황\n- 29CM 내에서 여름 침구 (그중 냉감패드 > 냉감이불) 카테고리 PUSH 확대 / MD단에서도 여름 침구에 대한 노출 많이 잡아주며 프로젝트슬립 냉감패드에도 긍정적\n-\n\n작년과 유사하게 진행한 것\nㄴ 잘된 점 (Keep) : 29CM 전사 기획전 참여\nㄴ 개선/아쉬운 점 (Problem & Finding) : 이미지 개선 필요\n\n올해 새롭게 시도한 것\nㄴ 잘된 점 (Keep) : 시즌 전환 시점 노출수 확대를 위한 쇼케이스 등 브랜드 프로모션 MD와 계획하여 시즌 선행하여 진행 / 상품 광고 확대 운영\nㄴ 개선/아쉬운 점 (Problem & Finding) : 여름 시즌 종료 시점 최대 7월 말로 생각하여 재고 운영 및 예약배송 운영 필요\nㄴ 향후 시도해볼 만한 아이디어 : 외부 유입을 확대할 수 있는 자사 콘텐츠 (META 콘텐츠/인플루언서 콘텐츠에서 29CM 채널로의 유입)",
+      "at": "2026-08-18 15:22"
+    }
+  }
 };
 
 var STATE = {
-  metric:'sales', start:null, end:null, preset:'summer',
+  metric:'sales', start:null, end:null, preset:'season',
   daily:[], pd:[], chprod:[], firstSeen:{},
   minDate:null, maxDate:null,
   sorts:{}, filters:{}, filterFocus:null,
   crossCh:null,
   promos:[], myChSel:null, promoDraft:null, promoEditIdx:null, promoCands:null, promoPick:null,
   notes:{}, noteEdit:null, noteDraft:'',
-  chFilter:null, chPanel:false, chSearch:'',
+  tab:'all', chFilter:null, chPanel:false, chSearch:'',
   loaded:false, err:null
 };
 var NOTE_KEY='summerNotes_v1';
@@ -310,7 +315,7 @@ function load(){
     loadPromos(); loadNotes();
     STATE.loaded=true;
     document.getElementById('srcBadge').textContent='✔ 집계시트 연결됨 · 일자 '+STATE.minDate+'~'+STATE.maxDate;
-    applyPreset('summer');
+    applyPreset('season');
   })
   .catch(function(e){
     STATE.err='데이터를 불러오지 못했습니다 ('+e+'). 로컬에서 열었다면 매출대시보드_열기.bat 으로 실행하세요.';
@@ -329,12 +334,12 @@ function applyPreset(p){
   STATE.preset=p;
   var y=+STATE.maxDate.slice(0,4);
   if(STATE.start) y=+STATE.start.slice(0,4);
-  if(STATE.maxDate < y+'-05-01') y=y-1;
+  if(STATE.maxDate < y+'-04-01') y=y-1;
   var s,e;
   if(p==='core'){ s=y+'-06-01'; e=y+'-07-31'; }
-  else if(p==='full'){ s=y+'-04-01'; e=y+'-09-30'; }
-  else { s=y+'-05-01'; e=y+'-08-31'; }
-  STATE.start=s; STATE.end=clampEnd(e);
+  else if(p==='summer'){ s=y+'-05-01'; e=y+'-08-17'; }
+  else { s=y+'-04-01'; e=y+'-08-17'; }   // season(기본): 4/1 ~ 8/17
+  STATE.start=s; STATE.end=e;
   syncInputs(); render();
 }
 function syncInputs(){
@@ -660,29 +665,56 @@ function deltaBars(items){
 
 /* ============================ 렌더 ============================ */
 /* --- 채널 필터 바 (섹션 1~5 공통) --- */
+/* 탭 = 전체 리캡 / 담당 채널 묶음 / 개별 채널 / 직접 선택 */
+function setTab(tab){
+  STATE.tab=tab;
+  if(tab==='all') STATE.chFilter=null;
+  else if(tab==='my') STATE.chFilter=CONFIG.MY_CHANNELS.slice();
+  else if(tab==='custom'){ STATE.chPanel=true; if(!filterOn()) STATE.chFilter=CONFIG.MY_CHANNELS.slice(); }
+  else STATE.chFilter=[tab];
+  STATE.crossCh=null; STATE.promoCands=null;
+  window.scrollTo(0,0);
+  render();
+}
+// 코멘트 키 — 탭마다 별도로 저장
+function nk(base){ return (!STATE.tab||STATE.tab==='all')? base : base+'@'+STATE.tab; }
+function tabLabel(t){ return t==='all'?'전체':(t==='my'?'담당 채널':(t==='custom'?filterLabel():t)); }
+
 function renderChBar(){
   var bar=document.getElementById('chBar'); bar.innerHTML='';
   if(!STATE.loaded) return;
-  var box=el('div',{class:'rangebar',style:'align-items:flex-start'});
-  var head=el('div',{class:'bar',style:'margin:0;width:100%'});
-  head.appendChild(el('span',{class:'small muted'},'채널'));
-  var toggle=el('button',{class:'btn'+(filterOn()?' pri':'')},'📌 '+filterLabel()+' ▾');
-  toggle.onclick=function(){ STATE.chPanel=!STATE.chPanel; render(); };
-  head.appendChild(toggle);
-  var bAll=el('button',{class:'btn'},'전체');
-  bAll.onclick=function(){ STATE.chFilter=null; render(); };
-  var bMy=el('button',{class:'btn'},'담당 채널');
-  bMy.onclick=function(){ STATE.chFilter=CONFIG.MY_CHANNELS.slice(); render(); };
   var sums=allChannels();
-  var bTop=el('button',{class:'btn'},'상위 5');
-  bTop.onclick=function(){ STATE.chFilter=Object.keys(sums).sort(function(a,b){return sums[b]-sums[a];}).slice(0,5); render(); };
-  head.appendChild(bAll); head.appendChild(bMy); head.appendChild(bTop);
-  head.appendChild(el('span',{class:'small muted'},filterOn()
-    ? '선택한 채널 기준으로 아래 1~5번 섹션이 모두 다시 계산됩니다.'
-    : '특정 채널만 보고 싶으면 선택하세요. 아래 1~5번 섹션에 모두 적용됩니다.'));
-  box.appendChild(head);
+  var box=el('div',{class:'rangebar',style:'align-items:flex-start'});
 
-  if(STATE.chPanel){
+  var tabs=el('div',{class:'seg',style:'flex-wrap:wrap'});
+  var list=[{k:'all',t:'📋 전체 리캡'},{k:'my',t:'담당 채널'}].concat(
+    CONFIG.MY_CHANNELS.map(function(ch){ return {k:ch,t:ch+' · '+won(sums[ch]||0)}; }));
+  list.forEach(function(x){
+    var b=el('button',{class:(STATE.tab===x.k?'on':'')},x.t);
+    b.onclick=function(){ setTab(x.k); };
+    tabs.appendChild(b);
+  });
+  box.appendChild(tabs);
+
+  var etc=el('div',{class:'bar',style:'margin:0'});
+  var others=Object.keys(sums).filter(function(ch){ return CONFIG.MY_CHANNELS.indexOf(ch)<0; })
+    .sort(function(a,b){ return sums[b]-sums[a]; });
+  var sel=el('select',{class:'tinput',style:'min-width:150px'});
+  var isOther=others.indexOf(STATE.tab)>=0;
+  var o0=el('option',{value:''},isOther?'다른 채널 ▾':'다른 채널 선택 ▾'); sel.appendChild(o0);
+  others.forEach(function(ch){ var o=el('option',{value:ch},ch+' · '+won(sums[ch]));
+    if(ch===STATE.tab)o.setAttribute('selected','selected'); sel.appendChild(o); });
+  sel.onchange=function(){ if(sel.value) setTab(sel.value); };
+  etc.appendChild(sel);
+  var bCustom=el('button',{class:'btn'+(STATE.tab==='custom'?' pri':'')},'⚙ 여러 채널 직접 선택');
+  bCustom.onclick=function(){ if(STATE.tab==='custom'){ STATE.chPanel=!STATE.chPanel; render(); } else setTab('custom'); };
+  etc.appendChild(bCustom);
+  etc.appendChild(el('span',{class:'small muted'}, STATE.tab==='all'
+    ? '전체 채널 합산 리캡입니다. 채널 탭을 누르면 그 채널만 따로 볼 수 있습니다.'
+    : '현재 보는 채널: '+filterLabel()+' · 코멘트도 탭별로 따로 저장됩니다.'));
+  box.appendChild(etc);
+
+  if(STATE.chPanel&&STATE.tab==='custom'){
     var panel=el('div',{style:'width:100%;margin-top:8px'});
     var srch=el('input',{class:'tinput',placeholder:'채널 검색…',style:'min-width:180px'});
     srch.value=STATE.chSearch; srch.setAttribute('data-fkey','chsearch');
@@ -723,14 +755,15 @@ function render(){
   document.getElementById('cmpNote').textContent='비교 기준: '+PS+' ~ '+PE+' (전년 동기간)';
   SECN=0;
 
+  var single=filterOn()&&STATE.chFilter.length===1;
   renderHero(app,S,E,PS,PE);
   renderKpis(app,S,E,PS,PE);
   renderArc(app,S,E,PS,PE);
-  renderChannel(app,S,E,PS,PE);
+  if(STATE.tab==='all') renderChannel(app,S,E,PS,PE);   // 전 채널 비교표는 전체 탭에서만
   renderPromo(app,S,E);
   renderMix(app,S,E,PS,PE);
   renderProduct(app,S,E,PS,PE);
-  renderCross(app,S,E);
+  if(!single) renderCross(app,S,E);                     // 단일 채널 탭에선 제품 표와 중복
   renderInsights(app,S,E,PS,PE);
 
   if(STATE.filterFocus){ var f=document.querySelector('[data-fkey="'+STATE.filterFocus+'"]');
@@ -745,6 +778,8 @@ function renderHero(app,S,E,PS,PE){
   h.appendChild(el('div',{class:'eyebrow'},(+S.slice(0,4))+' 여름 시즌 · '+S.replace(/-/g,'.')+' ~ '+E.replace(/-/g,'.')+' ('+daysBetween(S,E)+'일)'+(filterOn()?' · '+filterLabel():'')));
   h.appendChild(el('div',{class:'big'},wonP(cur.val)+' <span class="yoy '+(r>=0?'up':'down')+'">'+pctS(r)+'</span>'));
   h.appendChild(el('div',{class:'sub'},mlabel()+' 합계 '+wonFull(cur.val)+' · 전년 동기 '+wonFull(prev.val)+' · 차이 '+(cur.val-prev.val>=0?'+':'')+wonFull(cur.val-prev.val)));
+  if(E>STATE.maxDate) h.appendChild(el('div',{class:'sub',style:'color:var(--warn);margin-top:4px'},
+    '※ 선택 기간은 '+E+'까지지만, 집계에 반영된 매출은 '+STATE.maxDate+'까지입니다(매출마스터 입력 기준).'));
   var yb=el('div',{class:'yearbars'});
   var mx=Math.max(cur.val,prev.val,prev2.val,1);
   [[(+S.slice(0,4))-2,prev2.val,'var(--sub)'],[(+S.slice(0,4))-1,prev.val,'var(--c3)'],[(+S.slice(0,4)),cur.val,'var(--accent)']].forEach(function(x){
@@ -768,14 +803,21 @@ function renderKpis(app,S,E,PS,PE){
   g.appendChild(kpi('판매 수량',Math.round(c.qty).toLocaleString()+'개',rate(c.qty,p.qty),'전년비','전년 '+Math.round(p.qty).toLocaleString()+'개'));
   g.appendChild(kpi('건단가',won(cAov),rate(cAov,pAov),'전년비','전년 '+won(pAov)));
   g.appendChild(kpi('일평균 '+mlabel(),won(cDay),rate(cDay,pDay),'전년비',c.dayCount+'일 기준'));
-  var disc=c.sales?(1-c.pay/c.sales)*100:0;
-  g.appendChild(kpi('실결제 비율',(c.sales?(c.pay/c.sales*100):0).toFixed(1)+'%',null,null,'매출 대비 할인 '+disc.toFixed(1)+'%'));
+  if(filterOn()){
+    var all=totalsDaily(S,E,true), allP=totalsDaily(PS,PE,true);
+    var sh=all.val?c.val/all.val*100:0, shP=allP[mkey()]?p[mkey()]/allP[mkey()]*100:0;
+    g.appendChild(kpi('전사 대비 비중',sh.toFixed(1)+'%',null,null,
+      '전년 '+shP.toFixed(1)+'% ('+(sh-shP>=0?'+':'')+(sh-shP).toFixed(1)+'%p) · 전사 '+won(all.val)));
+  } else {
+    var disc=c.sales?(1-c.pay/c.sales)*100:0;
+    g.appendChild(kpi('실결제 비율',(c.sales?(c.pay/c.sales*100):0).toFixed(1)+'%',null,null,'매출 대비 할인 '+disc.toFixed(1)+'%'));
+  }
   app.appendChild(g);
 
   // 시즌 총평 코멘트
   var oc=el('div',{class:'card'});
-  oc.appendChild(el('h3',null,'<span>💬 시즌 총평</span><span class="h-sub">직접 작성 · 이 브라우저에 저장</span>'));
-  oc.appendChild(noteBox('overall','이번 여름 시즌을 한 문단으로 정리해 보세요. (무엇이 통했고, 무엇이 안 통했고, 다음 시즌에 뭘 바꿀지)'));
+  oc.appendChild(el('h3',null,'<span>💬 '+(STATE.tab==='all'?'시즌 총평':tabLabel(STATE.tab)+' 총평')+'</span><span class="h-sub">직접 작성 · 탭별로 따로 저장</span>'));
+  oc.appendChild(noteBox(nk('overall'),'이번 여름 시즌을 한 문단으로 정리해 보세요. (무엇이 통했고, 무엇이 안 통했고, 다음 시즌에 뭘 바꿀지)'));
   app.appendChild(oc);
 }
 
@@ -825,7 +867,7 @@ function renderArc(app,S,E,PS,PE){
   chips.appendChild(el('div',{class:'chip'},'그날 주도 채널<b>'+bestDayCh+' · '+won(bcv)+'</b>'));
   chips.appendChild(el('div',{class:'chip'},'피크 대비 최근 주<b>'+(maxW?((lastFull/maxW-1)*100).toFixed(0):'0')+'% ('+won(lastFull)+')</b>'));
   c.appendChild(chips);
-  endSection(app,c,'arc','예: 6월 초 피크를 만든 요인, 7월 중순 이후 하락 원인과 대응');
+  endSection(app,c,nk('arc'),'예: 6월 초 피크를 만든 요인, 7월 중순 이후 하락 원인과 대응');
 }
 
 /* --- 5. 채널 --- */
@@ -843,7 +885,7 @@ function renderChannel(app,S,E,PS,PE){
   var tp=totalsDaily(PS,PE);
   c.appendChild(tableOf(['채널',mlabel(),'비중','전년','YoY','증감액','건수'],rows,['text','won','share','won','pct','delta','num'],'ch',mlabel(),false,
     ['합계',r.total,1,tp[mkey()],rate(r.total,tp[mkey()]),r.total-tp[mkey()],totalsDaily(S,E).cnt]));
-  endSection(app,c,'channel','예: 채널별 성장·부진 원인, 다음 시즌 채널 전략');
+  endSection(app,c,nk('channel'),'예: 채널별 성장·부진 원인, 다음 시즌 채널 전략');
 }
 
 /* --- 담당 채널 & 프로모션 효과 --- */
@@ -1068,7 +1110,7 @@ function renderPromo(app,S,E){
     edit.appendChild(cw);
   }
   c.appendChild(edit);
-  endSection(app,c,'promo','예: 프로모션별 리뷰 — 잘된 점, 아쉬운 점, 다음에 바꿀 것');
+  endSection(app,c,nk('promo'),'예: 프로모션별 리뷰 — 잘된 점, 아쉬운 점, 다음에 바꿀 것');
 }
 
 /* --- 6. 카테고리 믹스 --- */
@@ -1093,7 +1135,7 @@ function renderMix(app,S,E,PS,PE){
     ['text','won','share','won','pct','delta'],'cat',mlabel(),true));
   g.appendChild(right);
   c.appendChild(g);
-  endSection(app,c,'mix','예: 카테고리 믹스 변화 해석');
+  endSection(app,c,nk('mix'),'예: 카테고리 믹스 변화 해석');
 }
 
 /* --- 7. 제품 --- */
@@ -1142,7 +1184,7 @@ function renderProduct(app,S,E,PS,PE){
     drops.map(function(x){return [x.name,x.cur,x.prev,x.delta];}),['text','won','won','delta'],'drop','증감액',true));
   g.appendChild(rr);
   c.appendChild(g);
-  endSection(app,c,'product','예: 히어로 제품·신제품 성과와 재고·소싱 메모');
+  endSection(app,c,nk('product'),'예: 히어로 제품·신제품 성과와 재고·소싱 메모');
 }
 
 /* --- 8. 채널 x 제품 --- */
@@ -1168,7 +1210,7 @@ function renderCross(app,S,E){
   var tot=0; Object.keys(pm).forEach(function(k){tot+=pm[k].val;});
   var prows=Object.keys(pm).map(function(k){ return [k,pm[k].cat||'',pm[k].val,tot?pm[k].val/tot:0,pm[k].qty]; });
   c.appendChild(tableOf(['제품','카테고리',mlabel(),'채널 내 비중','수량'],prows,['text','text','won','share','num'],'cross',mlabel(),true));
-  endSection(app,c,'cross','예: 채널별 주력 제품 배치 메모');
+  endSection(app,c,nk('cross'),'예: 채널별 주력 제품 배치 메모');
 }
 
 /* --- 9. 인사이트 --- */
@@ -1215,9 +1257,9 @@ function renderInsights(app,S,E,PS,PE){
   var bar=el('div',{class:'bar',style:'margin-top:12px'});
   var b=el('button',{class:'btn'},'📋 요약 + 코멘트 복사');
   b.onclick=function(){
-    var txt='['+(+S.slice(0,4))+' 여름 시즌 리캡] '+S+' ~ '+E+' ('+mlabel()+' 기준)\n\n'
+    var txt='['+(+S.slice(0,4))+' 여름 시즌 리캡'+(STATE.tab==='all'?'':' · '+tabLabel(STATE.tab))+'] '+S+' ~ '+E+' ('+mlabel()+' 기준)\n\n'
       + L.map(function(t){ return '- '+t.replace(/<[^>]+>/g,''); }).join('\n')
-      + notesAsText();
+      + notesAsText(true);
     if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){ b.textContent='✅ 복사됨'; setTimeout(function(){b.textContent='📋 요약 + 코멘트 복사';},1500); }); }
     else { var ta=el('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); b.textContent='✅ 복사됨'; }
   };
@@ -1231,15 +1273,27 @@ function renderInsights(app,S,E,PS,PE){
     catch(e){ alert('JSON 형식 오류: '+e); } };
   bar.appendChild(b); bar.appendChild(bx); bar.appendChild(bi);
   c.appendChild(bar);
-  endSection(app,c,'summary','예: 이번 시즌 총평과 다음 시즌 액션 아이템');
+  endSection(app,c,nk('summary'),'예: 이번 시즌 총평과 다음 시즌 액션 아이템');
 }
 // 저장된 코멘트를 텍스트로 (복사·공유용)
-var NOTE_LABELS={overall:'시즌 총평',arc:'시즌 아크',channel:'채널별 성적표',promo:'담당 채널 & 프로모션',mix:'카테고리 믹스',product:'제품',cross:'채널 × 제품',summary:'한 장 요약'};
-function notesAsText(){
-  var keys=Object.keys(NOTE_LABELS).filter(function(k){ return noteObj(k); });
+var NOTE_LABELS={overall:'시즌 총평',arc:'시즌 아크',channel:'채널별 성적표',promo:'프로모션',mix:'카테고리 믹스',product:'제품',cross:'채널 × 제품',summary:'한 장 요약'};
+function noteTitle(key){
+  var p=key.split('@'), base=NOTE_LABELS[p[0]]||p[0];
+  return p[1]? base+' — '+tabLabel(p[1]) : base;
+}
+// 전체 코멘트를 텍스트로. onlyTab=true면 현재 탭 것만
+function notesAsText(onlyTab){
+  var order=Object.keys(NOTE_LABELS);
+  var keys=Object.keys(STATE.notes).filter(function(k){ return noteObj(k); });
+  if(onlyTab){ var suf=(!STATE.tab||STATE.tab==='all')?'':'@'+STATE.tab;
+    keys=keys.filter(function(k){ var i=k.indexOf('@'); var s=i<0?'':k.slice(i); return s===suf; }); }
+  keys.sort(function(a,b){
+    var sa=a.indexOf('@')<0?'':a.slice(a.indexOf('@')+1), sb=b.indexOf('@')<0?'':b.slice(b.indexOf('@')+1);
+    if(sa!==sb) return sa<sb?-1:1;
+    return order.indexOf(a.split('@')[0])-order.indexOf(b.split('@')[0]); });
   if(!keys.length) return '';
   return '\n\n[코멘트]\n'+keys.map(function(k){ var n=noteObj(k);
-    return '■ '+NOTE_LABELS[k]+(n.at?' ('+n.at+')':'')+'\n'+n.text; }).join('\n\n');
+    return '■ '+noteTitle(k)+(n.at?' ('+n.at+')':'')+'\n'+n.text; }).join('\n\n');
 }
 
 /* ============================ 이벤트 ============================ */
