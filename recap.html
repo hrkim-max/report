@@ -98,6 +98,13 @@ svg{display:block;width:100%;height:auto}
 .bullets li:last-child{border-bottom:0}
 .bullets li:before{content:"";position:absolute;left:8px;top:17px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
 .bullets b{color:#fff}
+.notewrap{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+.notebtn{color:var(--sub)}
+.note{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent2);border-radius:10px;padding:11px 13px}
+.notetext{font-size:13.5px;white-space:normal;word-break:break-word}
+.notearea{width:100%;min-height:96px;resize:vertical;background:var(--panel2);border:1px solid var(--accent);
+  color:var(--text);border-radius:10px;padding:10px 12px;font-size:13.5px;line-height:1.6;font-family:inherit}
+.notearea:focus{outline:none;border-color:var(--accent2)}
 #chartTip{position:fixed;display:none;z-index:9999;background:#0b0e14;border:1px solid var(--line);border-radius:8px;
   padding:6px 9px;font-size:12px;color:var(--text);pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.5);white-space:pre-line}
 @media print{ body{background:#fff} .card,.hero{break-inside:avoid} #gate{display:none!important} }
@@ -153,16 +160,6 @@ var CONFIG = {
   GID_PRODDAILY: "1159266012",
   GID_CHPROD: "2069552888",
   GID_META: "1069750530",
-  CH_ALIAS: {
-    "PS스토어팜":"PS 스마트스토어", "P자사몰":"PS 자사몰",
-    "선물하기":"선물하기", "톡딜":"톡딜",
-    "메이커스":"메이커스", "29CM":"29CM",
-    "쿠팡(로)":"쿠팡", "쿠팡(윙)":"쿠팡", "쿠팡":"쿠팡",
-    "컬리":"컬리", "와디즈":"와디즈", "SK스토아":"SK스토아",
-    "LP자사몰":"LP 자사몰", "LP스토어팜":"LP 스마트스토어",
-    "PSL스토어팜":"PSL 스마트스토어", "평소생활":"PSL 스마트스토어",
-    "SSG":"SSG", "오늘의집":"오늘의집", "토스쇼핑":"토스쇼핑", "전화":"전화"
-  },
   CH_MERGE: { "29cm":"29CM" },
 
   // 담당 채널(프로모션 효과 분석 대상). 매출마스터 채널명(표시명) 기준.
@@ -173,23 +170,8 @@ var CONFIG = {
   // 형식: {ch:"PS스토어팜"|"담당 전체", name:"프로모션명", start:"2026-06-01", end:"2026-06-07", memo:""}
   PROMOS: [],
 
-  TARGETS: {
-    "PS 스마트스토어": {"2026-03":74000000,"2026-04":85000000,"2026-05":117000000,"2026-06":99000000,"2026-07":124000000,"2026-08":61000000,"2026-09":67000000,"2026-10":63000000,"2026-11":91000000,"2026-12":86000000,"2027-01":102000000,"2027-02":131000000},
-    "PS 자사몰": {"2026-03":25000000,"2026-04":30000000,"2026-05":60000000,"2026-06":55000000,"2026-07":75000000,"2026-08":45000000,"2026-09":30000000,"2026-10":30000000,"2026-11":50000000,"2026-12":30000000,"2027-01":35000000,"2027-02":35000000},
-    "선물하기": {"2026-03":70000000,"2026-04":70000000,"2026-05":100000000,"2026-06":100000000,"2026-07":80000000,"2026-08":75000000,"2026-09":80000000,"2026-10":80000000,"2026-11":100000000,"2026-12":100000000,"2027-01":70000000,"2027-02":75000000},
-    "메이커스": {"2026-03":60000000,"2026-04":50000000,"2026-05":90000000,"2026-06":100000000,"2026-07":80000000,"2026-08":50000000,"2026-09":50000000,"2026-10":75000000,"2026-11":120000000,"2026-12":90000000,"2027-01":45000000,"2027-02":40000000},
-    "29CM": {"2026-03":9000000,"2026-04":12000000,"2026-05":21000000,"2026-06":26000000,"2026-07":20000000,"2026-08":16000000,"2026-09":10000000,"2026-10":18000000,"2026-11":30000000,"2026-12":17000000,"2027-01":10000000,"2027-02":11000000},
-    "쿠팡": {"2026-03":11000000,"2026-04":12000000,"2026-05":20000000,"2026-06":20000000,"2026-07":54000000,"2026-08":14000000,"2026-09":12000000,"2026-10":11000000,"2026-11":11000000,"2026-12":12000000,"2027-01":11000000,"2027-02":12000000},
-    "컬리": {"2026-03":2500000,"2026-04":3500000,"2026-05":16000000,"2026-06":23000000,"2026-07":20000000,"2026-08":8500000,"2026-09":11500000,"2026-10":11200000,"2026-11":23000000,"2026-12":12800000,"2027-01":10000000,"2027-02":8000000},
-    "SK스토아": {"2026-04":1000000,"2026-05":5500000,"2026-06":7500000,"2026-07":7000000,"2026-08":1500000,"2026-09":1250000,"2026-10":2500000,"2026-11":5500000,"2026-12":4000000,"2027-01":3000000,"2027-02":1250000},
-    "LP 자사몰": {"2026-04":5000000,"2026-05":5000000,"2026-06":10000000,"2026-07":10000000,"2026-08":10000000,"2026-09":10000000,"2026-10":10000000,"2026-11":10000000,"2026-12":10000000,"2027-01":10000000,"2027-02":10000000},
-    "LP 스마트스토어": {"2026-04":3000000,"2026-05":4000000,"2026-06":4000000,"2026-07":4000000,"2026-08":5000000,"2026-09":5000000,"2026-10":5000000,"2026-11":5000000,"2026-12":5000000,"2027-01":5000000,"2027-02":5000000},
-    "PSL 스마트스토어": {"2026-03":2000000,"2026-04":2000000,"2026-05":2000000,"2026-06":3800000,"2026-07":5200000,"2026-08":3400000,"2026-09":1900000,"2026-10":1900000,"2026-11":2000000,"2026-12":1900000,"2027-01":1900000,"2027-02":2000000},
-    "SSG": {"2026-03":2900000,"2026-04":2900000,"2026-05":2900000,"2026-06":2900000,"2026-07":3000000,"2026-08":3000000,"2026-09":2900000,"2026-10":2900000,"2026-11":2900000,"2026-12":2900000,"2027-01":2900000,"2027-02":2900000},
-    "오늘의집": {"2026-04":1000000,"2026-05":3000000,"2026-06":5000000,"2026-07":7000000,"2026-08":4000000,"2026-09":3000000,"2026-10":7000000,"2026-11":12000000,"2026-12":11000000,"2027-01":6000000,"2027-02":5000000},
-    "토스쇼핑": {"2026-05":1500000,"2026-06":3500000,"2026-07":3500000,"2026-08":1000000,"2026-09":500000,"2026-10":2000000,"2026-11":4000000,"2026-12":2500000,"2027-01":1000000,"2027-02":500000},
-    "톡딜": {"2026-03":1000000,"2026-04":1000000,"2026-05":2000000,"2026-06":2000000,"2026-07":2000000,"2026-08":1000000,"2026-09":1000000,"2026-10":1000000,"2026-11":1000000,"2026-12":1000000,"2027-01":1000000,"2027-02":1000000}
-  }
+  // 섹션 코멘트 기본값. '📤 코멘트 내보내기'로 받은 객체를 여기 붙여 넣으면 기본값으로 영구 반영됩니다.
+  NOTES: {}
 };
 
 var STATE = {
@@ -197,10 +179,18 @@ var STATE = {
   daily:[], pd:[], chprod:[], firstSeen:{},
   minDate:null, maxDate:null,
   sorts:{}, filters:{}, filterFocus:null,
-  crossCh:null, proRate:true,
+  crossCh:null,
   promos:[], myChSel:null, promoDraft:null, promoEditIdx:null, promoCands:null, promoPick:null,
+  notes:{}, noteEdit:null, noteDraft:'',
   loaded:false, err:null
 };
+var NOTE_KEY='summerNotes_v1';
+function loadNotes(){
+  var raw=null; try{ raw=localStorage.getItem(NOTE_KEY); }catch(e){}
+  if(raw){ try{ var o=JSON.parse(raw); if(o&&typeof o==='object'){ STATE.notes=o; return; } }catch(e){} }
+  STATE.notes=JSON.parse(JSON.stringify(CONFIG.NOTES||{}));
+}
+function saveNotes(){ try{ localStorage.setItem(NOTE_KEY,JSON.stringify(STATE.notes)); }catch(e){} }
 var PROMO_KEY='summerPromos_v1';
 function loadPromos(){
   var raw=null; try{ raw=localStorage.getItem(PROMO_KEY); }catch(e){}
@@ -238,7 +228,6 @@ function monthsIn(s,e){ var out=[],y=+s.slice(0,4),m=+s.slice(5,7),ey=+e.slice(0
 function daysInMonth(ym){ return new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate(); }
 function escA(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function chDisp(ch){ return CONFIG.CH_MERGE[ch]||ch; }
-function grpOf(ch){ var d=chDisp(ch); return CONFIG.CH_ALIAS[ch]||CONFIG.CH_ALIAS[d]||d; }
 function mkey(){ return STATE.metric==='pay'?'pay':'sales'; }
 function mlabel(){ return STATE.metric==='pay'?'실결제가':'매출'; }
 function dow(dateStr){ var p=dateStr.split('-'); var d=new Date(+p[0],+p[1]-1,+p[2]); return ['일','월','화','수','목','금','토'][d.getDay()]; }
@@ -293,7 +282,7 @@ function load(){
     STATE.minDate=ds[0]; STATE.maxDate=ds[ds.length-1];
     STATE.firstSeen={};
     STATE.pd.forEach(function(r){ if(!STATE.firstSeen[r.prod]||r.date<STATE.firstSeen[r.prod]) STATE.firstSeen[r.prod]=r.date; });
-    loadPromos();
+    loadPromos(); loadNotes();
     STATE.loaded=true;
     document.getElementById('srcBadge').textContent='✔ 집계시트 연결됨 · 일자 '+STATE.minDate+'~'+STATE.maxDate;
     applyPreset('summer');
@@ -367,6 +356,50 @@ function kpi(lab,val,deltaPct,dlab,sub2){
   if(sub2) d.appendChild(el('div',{class:'sub2'},sub2));
   return d;
 }
+/* ---- 섹션 코멘트 ---- */
+function noteObj(k){ var v=STATE.notes[k]; if(v==null)return null;
+  if(typeof v==='string') return v?{text:v,at:''}:null; return v.text?v:null; }
+function nowStamp(){ var d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function noteBox(key,placeholder){
+  var wrap=el('div',{class:'notewrap'});
+  var cur=noteObj(key);
+  if(STATE.noteEdit===key){
+    var ta=el('textarea',{class:'notearea',placeholder:placeholder||'이 섹션에 대한 코멘트를 남겨주세요. (원인·액션·다음 시즌 메모 등)'});
+    ta.value=STATE.noteDraft||'';
+    ta.oninput=function(){ STATE.noteDraft=ta.value; };
+    wrap.appendChild(ta);
+    var bar=el('div',{class:'bar',style:'margin:6px 0 0'});
+    var bs=el('button',{class:'btn pri'},'저장');
+    bs.onclick=function(){ var t=(STATE.noteDraft||'').trim();
+      if(t) STATE.notes[key]={text:t,at:nowStamp()}; else delete STATE.notes[key];
+      saveNotes(); STATE.noteEdit=null; STATE.noteDraft=''; render(); };
+    var bc=el('button',{class:'btn'},'취소');
+    bc.onclick=function(){ STATE.noteEdit=null; STATE.noteDraft=''; render(); };
+    bar.appendChild(bs); bar.appendChild(bc);
+    bar.appendChild(el('span',{class:'small muted'},'저장하면 이 브라우저에 남습니다 · 요약 복사와 코멘트 내보내기에 함께 포함됩니다'));
+    wrap.appendChild(bar);
+    setTimeout(function(){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); },0);
+  } else if(cur){
+    var box=el('div',{class:'note'});
+    box.appendChild(el('div',{class:'notetext'},escA(cur.text).replace(/\n/g,'<br>')));
+    var meta=el('div',{class:'bar',style:'margin:8px 0 0'});
+    meta.appendChild(el('span',{class:'small muted'},'💬 코멘트'+(cur.at?' · '+cur.at:'')));
+    var be=el('button',{class:'btn',style:'padding:3px 9px'},'✏ 수정');
+    be.onclick=function(){ STATE.noteEdit=key; STATE.noteDraft=cur.text; render(); };
+    var bd=el('button',{class:'btn',style:'padding:3px 9px'},'🗑 삭제');
+    bd.onclick=function(){ delete STATE.notes[key]; saveNotes(); render(); };
+    meta.appendChild(be); meta.appendChild(bd);
+    box.appendChild(meta); wrap.appendChild(box);
+  } else {
+    var ba=el('button',{class:'btn notebtn'},'💬 코멘트 추가');
+    ba.onclick=function(){ STATE.noteEdit=key; STATE.noteDraft=''; render(); };
+    wrap.appendChild(ba);
+  }
+  return wrap;
+}
+function endSection(app,c,key,placeholder){ c.appendChild(noteBox(key,placeholder)); app.appendChild(c); }
+
 var SECN=0;
 function section(title,sub,lead){
   var c=el('div',{class:'card'});
@@ -417,8 +450,6 @@ function tableOf(headers,rows,types,key,defSortHdr,noFilter,footRow){
     else if(ty==='share') td.innerHTML=(v*100).toFixed(1)+'% <span class="mini"><i style="width:'+Math.min(100,v*100).toFixed(0)+'%"></i></span>';
     else if(ty==='pct'){ if(!isFinite(v)){ td.innerHTML='<b>신규</b>'; td.className='pos'; }
       else { td.innerHTML='<b>'+(v>=0?'+':'')+Math.round(v)+'%</b>'; td.className=(v>=20?'pos':v<0?'neg':''); } }
-    else if(ty==='pct2'){ if(!isFinite(v)||v==null){ td.innerHTML='<span class="muted">—</span>'; }
-      else { td.innerHTML='<b>'+v.toFixed(1)+'%</b>'; td.className=(v>=100?'pos':v<85?'neg':''); } }
     else if(ty==='delta'){ if(v==null){ td.innerHTML='<span class="muted">—</span>'; }
       else { td.innerHTML='<b>'+(v>=0?'+':'-')+won(Math.abs(v))+'</b>'; td.className=(v>0?'pos':v<0?'neg':''); } }
     else td.textContent=v;
@@ -546,7 +577,6 @@ function render(){
   renderHero(app,S,E,PS,PE);
   renderKpis(app,S,E,PS,PE);
   renderArc(app,S,E,PS,PE);
-  renderTarget(app,S,E);
   renderChannel(app,S,E,PS,PE);
   renderPromo(app,S,E);
   renderMix(app,S,E,PS,PE);
@@ -592,6 +622,12 @@ function renderKpis(app,S,E,PS,PE){
   var disc=c.sales?(1-c.pay/c.sales)*100:0;
   g.appendChild(kpi('실결제 비율',(c.sales?(c.pay/c.sales*100):0).toFixed(1)+'%',null,null,'매출 대비 할인 '+disc.toFixed(1)+'%'));
   app.appendChild(g);
+
+  // 시즌 총평 코멘트
+  var oc=el('div',{class:'card'});
+  oc.appendChild(el('h3',null,'<span>💬 시즌 총평</span><span class="h-sub">직접 작성 · 이 브라우저에 저장</span>'));
+  oc.appendChild(noteBox('overall','이번 여름 시즌을 한 문단으로 정리해 보세요. (무엇이 통했고, 무엇이 안 통했고, 다음 시즌에 뭘 바꿀지)'));
+  app.appendChild(oc);
 }
 
 /* --- 3. 시즌 아크 --- */
@@ -640,54 +676,7 @@ function renderArc(app,S,E,PS,PE){
   chips.appendChild(el('div',{class:'chip'},'그날 주도 채널<b>'+bestDayCh+' · '+won(bcv)+'</b>'));
   chips.appendChild(el('div',{class:'chip'},'피크 대비 최근 주<b>'+(maxW?((lastFull/maxW-1)*100).toFixed(0):'0')+'% ('+won(lastFull)+')</b>'));
   c.appendChild(chips);
-  app.appendChild(c);
-}
-
-/* --- 4. 목표 대비 --- */
-function renderTarget(app,S,E){
-  var months=monthsIn(S,E);
-  var groups={}; // grp -> {target, actual}
-  var anyTarget=false;
-  months.forEach(function(ym){
-    var mStart=(ym+'-01')>S?(ym+'-01'):S, dim=daysInMonth(ym);
-    var mEnd=(ym+'-'+dim)<E?(ym+'-'+dim):E;
-    var cover=daysBetween(mStart,mEnd)/dim;
-    Object.keys(CONFIG.TARGETS).forEach(function(g){
-      var t=CONFIG.TARGETS[g][ym]; if(!t)return; anyTarget=true;
-      var x=groups[g]||(groups[g]={target:0,actual:0,full:0});
-      x.target += STATE.proRate? t*cover : t; x.full+=t;
-    });
-    STATE.daily.forEach(function(r){ if(r.date>=mStart&&r.date<=mEnd){
-      var g=grpOf(r.ch); var x=groups[g]||(groups[g]={target:0,actual:0,full:0}); x.actual+=r[mkey()]; } });
-  });
-  if(!anyTarget) return;
-  var c=section('목표 대비 달성','기간 내 월목표 합계 기준',
-    '월 전체가 기간에 포함되지 않은 달(예: 진행 중인 이번 달)은 목표를 일수 비례로 안분했습니다.');
-  var toggle=el('div',{class:'bar',style:'margin-top:0'});
-  var b1=el('button',{class:'btn'+(STATE.proRate?' pri':'')},'부분월 목표 일할 안분');
-  b1.onclick=function(){ STATE.proRate=!STATE.proRate; render(); };
-  toggle.appendChild(b1);
-  toggle.appendChild(el('span',{class:'small muted'},'해당 기간 월목표: '+months.join(', ')));
-  c.appendChild(toggle);
-
-  var tt=0,ta=0,taNo=0;
-  var rows=Object.keys(groups).map(function(g){
-    var x=groups[g];
-    if(x.target>0){ tt+=x.target; ta+=x.actual; } else { taNo+=x.actual; }
-    return [g, x.target, x.actual, x.target?(x.actual/x.target*100):Infinity, x.target?(x.actual-x.target):null];
-  }).filter(function(r){ return r[1]>0||r[2]>0; });
-  var achv=tt?ta/tt*100:0;
-  var g1=el('div',{style:'margin:10px 0 14px'});
-  g1.appendChild(el('div',{class:'small muted'},'목표 설정 채널 전체 달성률'));
-  g1.appendChild(el('div',{style:'font-size:26px;font-weight:800;letter-spacing:-.6px'},achv.toFixed(1)+'% <span class="small muted" style="font-weight:500">('+wonFull(ta)+' / 목표 '+wonFull(tt)+')</span>'));
-  g1.appendChild(el('div',{class:'gauge'},'<i style="width:'+Math.min(100,achv).toFixed(1)+'%;background:'+(achv>=100?'var(--good)':achv>=85?'var(--warn)':'var(--bad)')+'"></i>'));
-  if(taNo>0) g1.appendChild(el('div',{class:'small muted'},'※ 목표가 설정되지 않은 채널(가구매·B2B 등) 실적 '+wonFull(taNo)+'은 달성률 계산에서 제외'));
-  var zero=rows.filter(function(r){ return r[1]>0&&r[2]===0; }).map(function(r){ return r[0]; });
-  if(zero.length) g1.appendChild(el('div',{class:'small muted'},'※ 목표는 있으나 실적 0인 채널: '+zero.join(', ')+' — 매출마스터 채널명과 목표 채널명 매핑(CH_ALIAS) 확인이 필요할 수 있습니다.'));
-  c.appendChild(g1);
-  c.appendChild(tableOf(['채널 그룹','목표','실적','달성률','차이'],rows,['text','won','won','pct2','delta'],'tgt','실적',true,
-    ['합계(목표 채널)',tt,ta,achv,ta-tt]));
-  app.appendChild(c);
+  endSection(app,c,'arc','예: 6월 초 피크를 만든 요인, 7월 중순 이후 하락 원인과 대응');
 }
 
 /* --- 5. 채널 --- */
@@ -705,7 +694,7 @@ function renderChannel(app,S,E,PS,PE){
   var tp=totalsDaily(PS,PE);
   c.appendChild(tableOf(['채널',mlabel(),'비중','전년','YoY','증감액','건수'],rows,['text','won','share','won','pct','delta','num'],'ch',mlabel(),false,
     ['합계',r.total,1,tp[mkey()],rate(r.total,tp[mkey()]),r.total-tp[mkey()],totalsDaily(S,E).cnt]));
-  app.appendChild(c);
+  endSection(app,c,'channel','예: 채널별 성장·부진 원인, 다음 시즌 채널 전략');
 }
 
 /* --- 담당 채널 & 프로모션 효과 --- */
@@ -910,7 +899,7 @@ function renderPromo(app,S,E){
     edit.appendChild(cw);
   }
   c.appendChild(edit);
-  app.appendChild(c);
+  endSection(app,c,'promo','예: 프로모션별 리뷰 — 잘된 점, 아쉬운 점, 다음에 바꿀 것');
 }
 
 /* --- 6. 카테고리 믹스 --- */
@@ -933,7 +922,7 @@ function renderMix(app,S,E,PS,PE){
     ['text','won','share','won','pct','delta'],'cat',mlabel(),true));
   g.appendChild(right);
   c.appendChild(g);
-  app.appendChild(c);
+  endSection(app,c,'mix','예: 카테고리 믹스 변화 해석');
 }
 
 /* --- 7. 제품 --- */
@@ -979,7 +968,7 @@ function renderProduct(app,S,E,PS,PE){
     drops.map(function(x){return [x.name,x.cur,x.prev,x.delta];}),['text','won','won','delta'],'drop','증감액',true));
   g.appendChild(rr);
   c.appendChild(g);
-  app.appendChild(c);
+  endSection(app,c,'product','예: 히어로 제품·신제품 성과와 재고·소싱 메모');
 }
 
 /* --- 8. 채널 x 제품 --- */
@@ -1005,7 +994,7 @@ function renderCross(app,S,E){
   var tot=0; Object.keys(pm).forEach(function(k){tot+=pm[k].val;});
   var prows=Object.keys(pm).map(function(k){ return [k,pm[k].cat||'',pm[k].val,tot?pm[k].val/tot:0,pm[k].qty]; });
   c.appendChild(tableOf(['제품','카테고리',mlabel(),'채널 내 비중','수량'],prows,['text','text','won','share','num'],'cross',mlabel(),true));
-  app.appendChild(c);
+  endSection(app,c,'cross','예: 채널별 주력 제품 배치 메모');
 }
 
 /* --- 9. 인사이트 --- */
@@ -1049,15 +1038,34 @@ function renderInsights(app,S,E,PS,PE){
   var ul=el('ul',{class:'bullets'});
   L.forEach(function(t){ ul.appendChild(el('li',null,t)); });
   c.appendChild(ul);
-  var b=el('button',{class:'btn',style:'margin-top:12px'},'📋 요약 텍스트 복사');
+  var bar=el('div',{class:'bar',style:'margin-top:12px'});
+  var b=el('button',{class:'btn'},'📋 요약 + 코멘트 복사');
   b.onclick=function(){
     var txt='['+(+S.slice(0,4))+' 여름 시즌 리캡] '+S+' ~ '+E+' ('+mlabel()+' 기준)\n\n'
-      + L.map(function(t){ return '- '+t.replace(/<[^>]+>/g,''); }).join('\n');
-    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){ b.textContent='✅ 복사됨'; setTimeout(function(){b.textContent='📋 요약 텍스트 복사';},1500); }); }
+      + L.map(function(t){ return '- '+t.replace(/<[^>]+>/g,''); }).join('\n')
+      + notesAsText();
+    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){ b.textContent='✅ 복사됨'; setTimeout(function(){b.textContent='📋 요약 + 코멘트 복사';},1500); }); }
     else { var ta=el('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); b.textContent='✅ 복사됨'; }
   };
-  c.appendChild(b);
-  app.appendChild(c);
+  var bx=el('button',{class:'btn'},'📤 코멘트 내보내기');
+  bx.onclick=function(){ var txt=JSON.stringify(STATE.notes,null,2);
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt);
+    window.prompt('아래 JSON을 HTML의 CONFIG.NOTES 에 붙여 넣으면 모든 사람에게 같은 코멘트가 보입니다. (클립보드에도 복사됨)',txt); };
+  var bi=el('button',{class:'btn'},'📥 코멘트 가져오기');
+  bi.onclick=function(){ var t=window.prompt('코멘트 JSON을 붙여 넣으세요','');
+    if(!t)return; try{ var o=JSON.parse(t); if(o&&typeof o==='object'){ STATE.notes=o; saveNotes(); render(); } else alert('객체 형식이 아닙니다.'); }
+    catch(e){ alert('JSON 형식 오류: '+e); } };
+  bar.appendChild(b); bar.appendChild(bx); bar.appendChild(bi);
+  c.appendChild(bar);
+  endSection(app,c,'summary','예: 이번 시즌 총평과 다음 시즌 액션 아이템');
+}
+// 저장된 코멘트를 텍스트로 (복사·공유용)
+var NOTE_LABELS={overall:'시즌 총평',arc:'시즌 아크',channel:'채널별 성적표',promo:'담당 채널 & 프로모션',mix:'카테고리 믹스',product:'제품',cross:'채널 × 제품',summary:'한 장 요약'};
+function notesAsText(){
+  var keys=Object.keys(NOTE_LABELS).filter(function(k){ return noteObj(k); });
+  if(!keys.length) return '';
+  return '\n\n[코멘트]\n'+keys.map(function(k){ var n=noteObj(k);
+    return '■ '+NOTE_LABELS[k]+(n.at?' ('+n.at+')':'')+'\n'+n.text; }).join('\n\n');
 }
 
 /* ============================ 이벤트 ============================ */
