@@ -309,10 +309,14 @@ function migrateNotes(o){
   return changed;
 }
 function loadNotes(){
+  // 기본값(CONFIG.NOTES) 위에 이 브라우저에 저장된 값을 덮어쓴다.
+  // (저장분이 있어도 아직 안 쓴 섹션은 파일 기본 코멘트가 그대로 보이도록 병합)
+  var base=JSON.parse(JSON.stringify(CONFIG.NOTES||{}));
+  migrateNotes(base);
   var raw=null; try{ raw=localStorage.getItem(NOTE_KEY); }catch(e){}
-  if(raw){ try{ var o=JSON.parse(raw); if(o&&typeof o==='object'){ STATE.notes=o; if(migrateNotes(STATE.notes)) saveNotes(); return; } }catch(e){} }
-  STATE.notes=JSON.parse(JSON.stringify(CONFIG.NOTES||{}));
-  migrateNotes(STATE.notes);
+  if(raw){ try{ var o=JSON.parse(raw);
+    if(o&&typeof o==='object'){ migrateNotes(o); for(var k in o) base[k]=o[k]; } }catch(e){} }
+  STATE.notes=base;
 }
 function saveNotes(){ try{ localStorage.setItem(NOTE_KEY,JSON.stringify(STATE.notes)); }catch(e){} }
 var PROMO_KEY='summerPromos_v1';
