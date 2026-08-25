@@ -397,6 +397,19 @@ function fCat(){ return STATE.cat.filter(function(r){return inRangeYm(r.ym);}); 
 function fProd(){ return STATE.prod.filter(function(r){return inRangeYm(r.ym);}); }
 function fOpt(){ return STATE.opt.filter(function(r){return inRangeYm(r.ym);}); }
 function fChprod(){ return STATE.chprod.filter(function(r){return inRangeYm(r.ym);}); }
+// 채널×제품(월 단위)을 '선택 기간'에 맞춰 보정: 각 (채널,월)의 일별매출 중 기간에 포함된 비율만큼 스케일.
+// 전월(全月) 포함 시 비율=1이라 기존과 동일. 부분월은 일자 기준으로 정확히 안분되어 채널 합계가 일별 데이터와 일치.
+function fChprodRanged(){
+  var m=metric(), s=curStart(), e=curEnd(), sy=s.slice(0,7), ey=e.slice(0,7);
+  var acc={}; // "채널|년월" -> {inr:기간내, full:월전체}
+  STATE.daily.forEach(function(r){ if(!notExcl(r))return; var ym=r.date.slice(0,7); if(ym<sy||ym>ey)return;
+    var k=chDisp(r.ch)+'|'+ym, o=acc[k]||(acc[k]={inr:0,full:0});
+    o.full+=r[m]; if(r.date>=s&&r.date<=e)o.inr+=r[m]; });
+  return STATE.chprod.filter(function(r){return r.ym>=sy&&r.ym<=ey;}).map(function(r){
+    var o=acc[chDisp(r.ch)+'|'+r.ym], f=(o&&o.full>0)?o.inr/o.full:0;
+    return {ym:r.ym, ch:r.ch, cat:r.cat, prod:r.prod, qty:r.qty*f, cnt:r.cnt*f, sales:r.sales*f, pay:(r.pay||0)*f};
+  }).filter(function(r){return r.sales||r.qty||r.cnt;});
+}
 // 월 단위 뷰 KPI (일 단위 KPI와 총액 불일치 방지)
 function kpiMonthly(app,rows,label){
   var m=metric(),t=0,c=0,q=0; rows.forEach(function(r){t+=r[m];c+=r.cnt;q+=r.qty;});
@@ -590,14 +603,14 @@ function renderChannel(app){
 
   // 클릭한 채널의 제품 판매 내역 (채널×제품 교차, agg_chprod)
   if(STATE.chprod.length && chPick){
-    var crows=fChprod().filter(function(r){ return chDisp(r.ch)===chPick; });
+    var crows=fChprodRanged().filter(function(r){ return chDisp(r.ch)===chPick; });
     var pmap=sumBy(crows,function(r){return r.prod;});
     var catOf={}; crows.forEach(function(r){catOf[r.prod]=r.cat;});
     var parr=Object.keys(pmap).map(function(k){return pmap[k];}).sort(function(a,b){return b[m]-a[m];});
     var ptot=parr.reduce(function(s,x){return s+x[m];},0)||1;
     var ctv=arr.filter(function(x){return x.key===chPick;})[0];
     var c3=el('div',{class:'card'});
-    c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">월 단위 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+'</span>'));
+    c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">선택 기간 기준 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+'</span>'));
     if(!parr.length) c3.appendChild(el('div',{class:'small muted'},'해당 채널의 제품 데이터가 없습니다(월 단위 집계 기준).'));
     else c3.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
       parr.map(function(x){return [x.key,catOf[x.key]||'',x[m],x[m]/ptot,x.cnt,x.qty];}),
@@ -632,7 +645,7 @@ function renderCategory(app){
 
   // 카테고리별 채널 비중 (어떤 채널에서 이 카테고리가 많이 나갔나 — 채널×제품 교차)
   if(STATE.chprod.length){
-    var crows=fChprod();
+    var crows=fChprodRanged();
     var catsAvail=Object.keys(sumBy(crows,function(r){return r.cat;}));
     var pick=(STATE.catCh&&catsAvail.indexOf(STATE.catCh)>=0)?STATE.catCh:(arr[0]?arr[0].key:catsAvail[0]);
     var c3=el('div',{class:'card'}); var h=el('h3',null,'카테고리별 채널 비중 ');
@@ -704,7 +717,7 @@ function renderProduct(app){
     var cc=el('div',{class:'card',style:'margin:0'});
     cc.appendChild(el('h3',null,pick+' · 채널별 매출'));
     if(STATE.chprod.length){
-      var chm=sumBy(fChprod().filter(function(r){return r.prod===pick;}),function(r){return chDisp(r.ch);});
+      var chm=sumBy(fChprodRanged().filter(function(r){return r.prod===pick;}),function(r){return chDisp(r.ch);});
       var charr=Object.keys(chm).map(function(k){return chm[k];}).sort(function(a,b){return b[m]-a[m];});
       var ctot=charr.reduce(function(s,x){return s+x[m];},0)||1;
       if(charr.length){ cc.appendChild(donut(charr.slice(0,8).map(function(x){return {name:x.key,val:x[m]};}),ctot));
