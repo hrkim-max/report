@@ -167,6 +167,7 @@ var CONFIG = {
   GID_META:  "1069750530",   // meta 탭 gid (업데이트 시각)
   GID_CHPROD:"2069552888",   // agg_chprod 탭 gid (채널×제품 교차)
   GID_PRODDAILY:"1159266012",// agg_prod_daily 탭 gid (날짜×제품 일별)
+  GID_CHPROD_DAILY:"116065969", // agg_chprod_daily 탭 gid (날짜×채널×제품 일별) — 안분 없이 날짜 단위 정확 필터
   REFRESH_URL:"https://script.google.com/macros/s/AKfycbwoFFhtXYcuU5VJvrXx29liVUkhApC-3oi-mnLwGPMX89wD1yc_G8kIfCB7ZoTIwJdTcQ/exec",  // 집계 웹앱 /exec — '데이터 갱신' 버튼용
 
   CH_ALIAS: {
@@ -215,7 +216,7 @@ var STATE = {
   sorts:{}, filters:{}, filterFocus:null, // 표별 독립 정렬/필터 상태(key 기반)
   chSearch:'',              // 채널별 뷰 채널 체크박스 검색
   sortIdx:null, sortDir:-1,
-  daily:[], cat:[], prod:[], opt:[], chprod:[], proddaily:null, _pdLoading:false,
+  daily:[], cat:[], prod:[], opt:[], chprod:[], proddaily:null, _pdLoading:false, chpd:null,
   tOv:{},                   // 목표 오버라이드(localStorage)
   loaded:false, usingMock:false
 };
@@ -300,7 +301,7 @@ function load(){
   Promise.all([
     fetchCSV(CONFIG.GID_DAILY), fetchCSV(CONFIG.GID_CAT), fetchCSV(CONFIG.GID_PROD),
     fetchOpt(CONFIG.GID_OPT), fetchOpt(CONFIG.GID_META), fetchOpt(CONFIG.GID_CHPROD),
-    fetchOpt(CONFIG.GID_PRODDAILY)
+    fetchOpt(CONFIG.GID_PRODDAILY), fetchOpt(CONFIG.GID_CHPROD_DAILY)
   ]).then(function(res){
     STATE.daily = csvToObjects(res[0]).map(function(o){return {
       date:normDate(o['날짜']), ch:o['채널'], qty:toNum(o['수량']), cnt:toNum(o['건수']),
@@ -320,6 +321,8 @@ function load(){
     STATE.meta = res[4]? parseMeta(res[4]) : null;
     STATE.proddaily = res[6]? csvToObjects(res[6]).map(function(o){return {date:normDate(o['날짜']), prod:o['제품']||'', cat:o['카테고리']||'',
       qty:toNum(o['수량']), cnt:toNum(o['건수']), sales:toNum(o['매출']), pay:toNum(o['결제가'])};}).filter(function(r){return r.date;}) : [];
+    STATE.chpd = res[7]? csvToObjects(res[7]).map(function(o){return {date:normDate(o['날짜']), ch:o['채널'], cat:o['카테고리']||'', prod:o['제품']||'',
+      qty:toNum(o['수량']), cnt:toNum(o['건수']), sales:toNum(o['매출']), pay:toNum(o['결제가'])};}).filter(function(r){return /^\d{4}-\d{2}-\d{2}$/.test(r.date)&&r.ch;}) : [];
     STATE.loaded=true; STATE.usingMock=false;
     afterLoad();
   }).catch(function(e){
@@ -397,9 +400,13 @@ function fCat(){ return STATE.cat.filter(function(r){return inRangeYm(r.ym);}); 
 function fProd(){ return STATE.prod.filter(function(r){return inRangeYm(r.ym);}); }
 function fOpt(){ return STATE.opt.filter(function(r){return inRangeYm(r.ym);}); }
 function fChprod(){ return STATE.chprod.filter(function(r){return inRangeYm(r.ym);}); }
-// 채널×제품(월 단위)을 '선택 기간'에 맞춰 보정: 각 (채널,월)의 일별매출 중 기간에 포함된 비율만큼 스케일.
-// 전월(全月) 포함 시 비율=1이라 기존과 동일. 부분월은 일자 기준으로 정확히 안분되어 채널 합계가 일별 데이터와 일치.
+// 채널×제품을 '선택 기간'에 맞춰 반환.
+// 1순위: 날짜×채널×제품 일 단위 집계(agg_chprod_daily)가 있으면 날짜로 정확히 필터.
+// 2순위(폴백): 월 단위 agg_chprod를 각 (채널,월)의 일별매출 비율로 안분(전월 포함 시 비율=1).
 function fChprodRanged(){
+  if(STATE.chpd && STATE.chpd.length){
+    return STATE.chpd.filter(function(r){return inRange(r.date);});
+  }
   var m=metric(), s=curStart(), e=curEnd(), sy=s.slice(0,7), ey=e.slice(0,7);
   var acc={}; // "채널|년월" -> {inr:기간내, full:월전체}
   STATE.daily.forEach(function(r){ if(!notExcl(r))return; var ym=r.date.slice(0,7); if(ym<sy||ym>ey)return;
