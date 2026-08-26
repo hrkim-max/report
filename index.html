@@ -512,6 +512,7 @@ function lineChart(el, labels, series, {fmt=wonShort, unit="", values=true, labe
 /* ---- 렌더 ---- */
 let STATE={daily:[],prodDaily:[],hasSalesUrl:false,mode:"week",loadedAt:null,brandId:CONFIG.BRANDS[0].id,cache:{},startDate:null,endDate:null,
            prodSort:"cost",prodDir:-1,prodSel:null,prodOnlySel:false,prodSearch:"",detailAll:false,rangeInit:false,
+           campSort:"cost",campDir:-1,
            alertBasis:"range",   // 점검 리포트 비교 기준 기본값: range(선택기간) | confirmed(확정구간)
            rangeNote:""};
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
@@ -834,10 +835,9 @@ function parseCampaignMap(text){
 function mapHasCampaigns(bid){ return !!(CAMPMAP && ((CAMPMAP.byBrand[bid]&&CAMPMAP.byBrand[bid].length) || (CAMPMAP.byBrand["*"]&&CAMPMAP.byBrand["*"].length))); }
 // '-' · 빈값 · 미지정 표기는 실제 캠페인으로 세지 않음(기존/미분류)
 function realCamp(v){ v=(v||"").trim(); return (v && v!=="-" && v!=="(미지정)" && v!=="미지정") ? v : ""; }
-function brandHasCampaigns(bid){
-  if(mapHasCampaigns(bid)) return true;
-  return STATE.prodDaily && STATE.prodDaily.some(r=>realCamp(r.camp));   // 광고 데이터 탭 '캠페인' 열에 실제 캠페인명이 있으면
-}
+function hasCampColumn(){ return STATE.prodDaily && STATE.prodDaily.some(r=>(r.camp||"")!==""); }  // 광고 데이터 탭에 '캠페인' 열이 존재(값이 '-'라도)
+function hasRealCampaign(){ return STATE.prodDaily && STATE.prodDaily.some(r=>realCamp(r.camp)); }  // 실제 캠페인명이 하나라도 있는지
+function brandHasCampaigns(bid){ return mapHasCampaigns(bid) || hasCampColumn(); }  // 매핑 탭 또는 광고 캠페인 열이 있으면 패널 표시
 // 매핑 탭에서 (상품, 날짜)에 해당하는 캠페인 — 시작일~종료일이 그날을 덮는 항목
 function resolveCamp(bid, name, dateKey){
   if(!CAMPMAP) return null;
@@ -864,9 +864,17 @@ function aggregateCampaigns(){
   const arr=Object.values(map);
   for(const m of arr){ m.prods=m.pset.size; delete m.pset;
     m.roas=m.cost>0?m.adRev/m.cost*100:null; m.ctr=m.imp>0?m.clk/m.imp*100:null; m.cpc=m.clk>0?m.cost/m.clk:null; }
-  arr.sort((a,b)=>b.cost-a.cost);
+  const key=STATE.campSort, dir=STATE.campDir;
+  arr.sort((a,b)=>{
+    if(key==="name") return dir*a.name.localeCompare(b.name);
+    const va=a[key]==null?-Infinity:a[key], vb=b[key]==null?-Infinity:b[key];
+    return dir*(va-vb) || b.cost-a.cost;
+  });
   return arr;
 }
+const CAMP_COLS=[{k:"name",label:"캠페인",cls:"pname"},{k:"prods",label:"상품수"},{k:"cost",label:"광고비"},
+  {k:"adRev",label:"광고전환매출"},{k:"roas",label:"명목 ROAS"},{k:"imp",label:"노출수"},{k:"clk",label:"클릭수"},
+  {k:"ctr",label:"CTR",title:"클릭수 ÷ 노출수"},{k:"cpc",label:"CPC",title:"광고비 ÷ 클릭수"},{k:"cnt",label:"판매수"}];
 function renderCampaignPanel(){
   const el=$("#campPanel"); if(!el) return;
   const camps=aggregateCampaigns();
@@ -887,24 +895,28 @@ function renderCampaignPanel(){
     values:keys.map(k=> (cmap[nm]&&cmap[nm][k]!=null)?cmap[nm][k]:0)}));
   const tot=camps.reduce((a,c)=>{a.cost+=c.cost;a.adRev+=c.adRev;a.cnt+=c.cnt;a.imp+=c.imp;a.clk+=c.clk;return a;},{cost:0,adRev:0,cnt:0,imp:0,clk:0});
   const totRoas=tot.cost>0?tot.adRev/tot.cost*100:null, totCtr=tot.imp>0?tot.clk/tot.imp*100:null, totCpc=tot.clk>0?tot.cost/tot.clk:null;
+  const noReal = !hasRealCampaign() && !mapHasCampaigns(STATE.brandId);   // 아직 실제 캠페인명이 없음
+  const arrw=(k)=> k===STATE.campSort ? (STATE.campDir===1?" ▲":" ▼") : "";
+  const th=CAMP_COLS.map(c=>`<th class="sortable ${c.cls||""}" data-k="${c.k}"${c.title?` title="${c.title}"`:""}>${c.label}${arrw(c.k)}</th>`).join("");
+  const cell=(c)=>`<tr>
+    <td class="pname">${escapeHtml(c.name)}</td>
+    <td class="num muted">${c.prods}</td>
+    <td class="num">${won(c.cost)}</td>
+    <td class="num">${won(c.adRev)}</td>
+    <td class="num">${c.roas==null?'<span class="muted">—</span>':pct(c.roas)}</td>
+    <td class="num muted">${Math.round(c.imp).toLocaleString("ko-KR")}</td>
+    <td class="num muted">${Math.round(c.clk).toLocaleString("ko-KR")}</td>
+    <td class="num muted">${c.ctr==null?'—':pct(c.ctr,2)}</td>
+    <td class="num muted">${c.cpc==null?'—':won(c.cpc)}</td>
+    <td class="num muted">${Math.round(c.cnt).toLocaleString("ko-KR")}</td></tr>`;
   el.innerHTML=`<div class="panel">
-    <h2>🎯 캠페인별 효율 <span class="muted" style="font-size:12px">· ${periodLbl} · ${camps.length}개 캠페인</span></h2>
-    <p class="hint">상품을 캠페인별로 묶어 집계합니다(광고 데이터 탭의 '캠페인' 열 또는 '캠페인매핑' 탭 기준). 미매핑 상품은 (미지정). 광고전환매출·ROAS는 잠정(전환 추적 중)일 수 있어요. 기간은 상단 달력.</p>
-    ${labels.length>=2?`<div class="legend">${series.map(x=>`<span><span class="dot" style="background:${x.color}"></span>${escapeHtml(x.name)}</span>`).join("")}</div><div class="chartbox" id="campTrend"></div>`:""}
+    <h2>🎯 캠페인별 광고 상세 <span class="muted" style="font-size:12px">· ${periodLbl} · ${camps.length}개 캠페인</span></h2>
+    <p class="hint">열 머리글 클릭으로 정렬 · 광고 데이터 탭 '캠페인' 열(또는 캠페인매핑 탭) 기준으로 상품을 묶어 <b>일자 단위</b>로 집계(상품이 시기별로 다른 캠페인이면 날짜별로 분리). 미지정(‘-’)은 (미지정). 최근 ${CONFIG.ATTRIB_DAYS}일은 잠정.
+    ${noReal?`<br><span class="bdg prov">안내</span> 아직 실제 캠페인명이 없습니다. 광고 데이터 탭 <b>A열(캠페인)</b>에 캠페인명을 넣으면(‘-’ 대신) 그 캠페인으로 나뉩니다.`:""}</p>
+    ${labels.length>=2 && !noReal?`<div class="legend">${series.map(x=>`<span><span class="dot" style="background:${x.color}"></span>${escapeHtml(x.name)}</span>`).join("")}</div><div class="chartbox" id="campTrend"></div>`:""}
     <div class="tblwrap" style="margin-top:10px"><table class="prod">
-      <thead><tr><th class="pname">캠페인</th><th>상품수</th><th>광고비</th><th>광고전환매출</th><th>명목 ROAS</th>
-        <th>노출수</th><th>클릭수</th><th title="클릭수 ÷ 노출수">CTR</th><th title="광고비 ÷ 클릭수">CPC</th><th>판매수</th></tr></thead>
-      <tbody>${camps.map(c=>`<tr>
-        <td class="pname">${escapeHtml(c.name)}</td>
-        <td class="num muted">${c.prods}</td>
-        <td class="num">${won(c.cost)}</td>
-        <td class="num">${won(c.adRev)}</td>
-        <td class="num">${c.roas==null?'<span class="muted">—</span>':pct(c.roas)}</td>
-        <td class="num muted">${Math.round(c.imp).toLocaleString("ko-KR")}</td>
-        <td class="num muted">${Math.round(c.clk).toLocaleString("ko-KR")}</td>
-        <td class="num muted">${c.ctr==null?'—':pct(c.ctr,2)}</td>
-        <td class="num muted">${c.cpc==null?'—':won(c.cpc)}</td>
-        <td class="num muted">${Math.round(c.cnt).toLocaleString("ko-KR")}</td></tr>`).join("")}</tbody>
+      <thead><tr>${th}</tr></thead>
+      <tbody>${camps.map(cell).join("")}</tbody>
       <tfoot><tr><td class="pname">합계</td><td class="num">${camps.reduce((a,c)=>a+c.prods,0)}</td>
         <td class="num">${won(tot.cost)}</td><td class="num">${won(tot.adRev)}</td><td class="num">${totRoas==null?"—":pct(totRoas)}</td>
         <td class="num">${Math.round(tot.imp).toLocaleString("ko-KR")}</td><td class="num">${Math.round(tot.clk).toLocaleString("ko-KR")}</td>
@@ -912,7 +924,12 @@ function renderCampaignPanel(){
         <td class="num">${Math.round(tot.cnt).toLocaleString("ko-KR")}</td></tr></tfoot>
     </table></div>
   </div>`;
-  if(labels.length>=2) lineChart($("#campTrend"), labels, series, {fmt:wonShort, labelMax:8, labelAll:true});
+  if(labels.length>=2 && !noReal) lineChart($("#campTrend"), labels, series, {fmt:wonShort, labelMax:8, labelAll:true});
+  el.querySelectorAll("th.sortable").forEach(h=>h.addEventListener("click",()=>{
+    const k=h.dataset.k;
+    if(STATE.campSort===k) STATE.campDir*=-1; else { STATE.campSort=k; STATE.campDir=(k==="name"?1:-1); }
+    renderCampaignPanel();
+  }));
 }
 /* ---- 상품 점검 리포트 (효율 급감·위험 감지) ----
    전환 추적 지연을 피하려고 '확정 구간'(데이터 마지막날 - 추적일)까지만 비교합니다. */
