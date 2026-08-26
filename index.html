@@ -112,6 +112,10 @@
   table.prod th.sortable:hover{color:var(--net)}
   table.prod thead th{position:sticky;top:0;z-index:1}
   .prodbar input[type=text]{font:inherit;padding:7px 11px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);min-width:150px}
+  table.prod tbody tr.camp-row{cursor:pointer}
+  table.prod tbody tr.camp-row:hover{background:var(--panel2)}
+  table.prod tbody tr.camp-sel{background:rgba(37,99,235,.12)}
+  @media(prefers-color-scheme:dark){ table.prod tbody tr.camp-sel{background:rgba(59,130,246,.20)} }
   /* 월간보고 뷰 */
   .repbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
   .repbar select{font:inherit;padding:8px 12px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text)}
@@ -512,7 +516,7 @@ function lineChart(el, labels, series, {fmt=wonShort, unit="", values=true, labe
 /* ---- 렌더 ---- */
 let STATE={daily:[],prodDaily:[],hasSalesUrl:false,mode:"week",loadedAt:null,brandId:CONFIG.BRANDS[0].id,cache:{},startDate:null,endDate:null,
            prodSort:"cost",prodDir:-1,prodSel:null,prodOnlySel:false,prodSearch:"",detailAll:false,rangeInit:false,
-           campSort:"cost",campDir:-1,
+           campSort:"cost",campDir:-1,campSearch:"",campFilter:null,
            alertBasis:"range",   // 점검 리포트 비교 기준 기본값: range(선택기간) | confirmed(확정구간)
            rangeNote:""};
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
@@ -784,12 +788,13 @@ function render(){
 }
 
 /* ---- 상품별 상세 ---- */
-function aggregateProducts(){ return aggregateProductsIn(STATE.startDate, STATE.endDate); }
-function aggregateProductsIn(s, e){
+function aggregateProducts(){ return aggregateProductsIn(STATE.startDate, STATE.endDate, STATE.campFilter); }
+function aggregateProductsIn(s, e, campFilter){
   const map={};
   for(const r of STATE.prodDaily){
     if(s && r.key<s) continue;
     if(e && r.key>e) continue;
+    if(campFilter && campForRow(r)!==campFilter) continue;   // 캠페인 클릭 필터(그 캠페인 소속 날짜만)
     (map[r.name] ||= {name:r.name,cost:0,adRev:0,cnt:0,imp:0,clk:0});
     const m=map[r.name]; m.cost+=r.cost; m.adRev+=r.adRev; m.cnt+=r.cnt; m.imp+=r.imp; m.clk+=r.clk;
   }
@@ -898,8 +903,8 @@ function renderCampaignPanel(){
   const noReal = !hasRealCampaign() && !mapHasCampaigns(STATE.brandId);   // 아직 실제 캠페인명이 없음
   const arrw=(k)=> k===STATE.campSort ? (STATE.campDir===1?" ▲":" ▼") : "";
   const th=CAMP_COLS.map(c=>`<th class="sortable ${c.cls||""}" data-k="${c.k}"${c.title?` title="${c.title}"`:""}>${c.label}${arrw(c.k)}</th>`).join("");
-  const cell=(c)=>`<tr>
-    <td class="pname">${escapeHtml(c.name)}</td>
+  const cell=(c)=>`<tr class="camp-row${c.name===STATE.campFilter?' camp-sel':''}" data-camp="${escapeHtml(c.name)}">
+    <td class="pname">${escapeHtml(c.name)}${c.name===STATE.campFilter?' <span class="bdg conf">필터중</span>':''}</td>
     <td class="num muted">${c.prods}</td>
     <td class="num">${won(c.cost)}</td>
     <td class="num">${won(c.adRev)}</td>
@@ -909,14 +914,22 @@ function renderCampaignPanel(){
     <td class="num muted">${c.ctr==null?'—':pct(c.ctr,2)}</td>
     <td class="num muted">${c.cpc==null?'—':won(c.cpc)}</td>
     <td class="num muted">${Math.round(c.cnt).toLocaleString("ko-KR")}</td></tr>`;
+  const q=STATE.campSearch.trim().toLowerCase();
+  const shownCamps = q ? camps.filter(c=>c.name.toLowerCase().includes(q)) : camps;
   el.innerHTML=`<div class="panel">
     <h2>🎯 캠페인별 광고 상세 <span class="muted" style="font-size:12px">· ${periodLbl} · ${camps.length}개 캠페인</span></h2>
-    <p class="hint">열 머리글 클릭으로 정렬 · 광고 데이터 탭 '캠페인' 열(또는 캠페인매핑 탭) 기준으로 상품을 묶어 <b>일자 단위</b>로 집계(상품이 시기별로 다른 캠페인이면 날짜별로 분리). 미지정(‘-’)은 (미지정). 최근 ${CONFIG.ATTRIB_DAYS}일은 잠정.
+    <p class="hint">열 머리글 클릭 정렬 · <b>캠페인 행을 클릭하면 아래 '상품별 광고 상세'가 그 캠페인 상품만</b> 표시됩니다. 광고 데이터 탭 '캠페인' 열 기준 <b>일자 단위</b> 집계(시기별로 다른 캠페인이면 날짜별 분리). 최근 ${CONFIG.ATTRIB_DAYS}일은 잠정.
     ${noReal?`<br><span class="bdg prov">안내</span> 아직 실제 캠페인명이 없습니다. 광고 데이터 탭 <b>A열(캠페인)</b>에 캠페인명을 넣으면(‘-’ 대신) 그 캠페인으로 나뉩니다.`:""}</p>
     ${labels.length>=2 && !noReal?`<div class="legend">${series.map(x=>`<span><span class="dot" style="background:${x.color}"></span>${escapeHtml(x.name)}</span>`).join("")}</div><div class="chartbox" id="campTrend"></div>`:""}
-    <div class="tblwrap" style="margin-top:10px"><table class="prod">
+    <div class="prodbar" style="margin-top:8px">
+      <input type="text" id="campSearch" placeholder="🔎 캠페인 검색" value="${escapeHtml(STATE.campSearch)}">
+      ${STATE.campFilter
+        ? `<span class="pinfo" style="color:var(--net);font-weight:600">▼ 상품별 상세: ‘${escapeHtml(STATE.campFilter)}’ 필터중</span><button id="campClear">필터 해제</button>`
+        : `<span class="pinfo">행 클릭 → 아래 상품 필터 · ${camps.length}개 캠페인${q?` · 검색 ${shownCamps.length}개`:""}</span>`}
+    </div>
+    <div class="tblwrap"><table class="prod">
       <thead><tr>${th}</tr></thead>
-      <tbody>${camps.map(cell).join("")}</tbody>
+      <tbody>${shownCamps.length?shownCamps.map(cell).join(""):`<tr><td colspan="10" class="muted" style="text-align:center;padding:16px">검색 결과가 없습니다</td></tr>`}</tbody>
       <tfoot><tr><td class="pname">합계</td><td class="num">${camps.reduce((a,c)=>a+c.prods,0)}</td>
         <td class="num">${won(tot.cost)}</td><td class="num">${won(tot.adRev)}</td><td class="num">${totRoas==null?"—":pct(totRoas)}</td>
         <td class="num">${Math.round(tot.imp).toLocaleString("ko-KR")}</td><td class="num">${Math.round(tot.clk).toLocaleString("ko-KR")}</td>
@@ -929,6 +942,15 @@ function renderCampaignPanel(){
     const k=h.dataset.k;
     if(STATE.campSort===k) STATE.campDir*=-1; else { STATE.campSort=k; STATE.campDir=(k==="name"?1:-1); }
     renderCampaignPanel();
+  }));
+  const cs=$("#campSearch");
+  cs?.addEventListener("input",ev=>{ STATE.campSearch=ev.target.value; renderCampaignPanel();
+    const s=$("#campSearch"); if(s){ s.focus(); try{ s.setSelectionRange(s.value.length,s.value.length); }catch(e){} } });
+  $("#campClear")?.addEventListener("click",()=>{ STATE.campFilter=null; render(); });
+  el.querySelectorAll("tr.camp-row").forEach(tr=>tr.addEventListener("click",()=>{
+    const name=tr.dataset.camp;
+    STATE.campFilter = (STATE.campFilter===name)?null:name;   // 같은 캠페인 다시 클릭하면 해제
+    render();   // 상품별 상세까지 함께 갱신
   }));
 }
 /* ---- 상품 점검 리포트 (효율 급감·위험 감지) ----
@@ -1046,6 +1068,7 @@ function productTrend(nameSet, topProds){
   for(const r of STATE.prodDaily){
     if(s && r.key<s) continue;
     if(e && r.key>e) continue;
+    if(STATE.campFilter && campForRow(r)!==STATE.campFilter) continue;
     if(!nameSet.has(r.name)) continue;
     dayset.add(r.key);
     (map[r.name] ||= {}); map[r.name][r.key]=(map[r.name][r.key]||0)+r.adRev;
@@ -1098,8 +1121,8 @@ function renderProductPanel(){
     </div>` : "";
 
   let html=`<div class="panel">
-    <h2>상품별 광고 상세 <span class="muted" style="font-size:12px">· ${periodLbl}</span></h2>
-    <p class="hint">열 머리글을 클릭하면 정렬(오름/내림 전환) · 상품명 검색 · 체크한 상품만 <b>선택 합계</b>·<b>추이 그래프</b>에 반영. ROAS·CTR·CPC는 광고전환매출 기준(실판매액 보정은 상품별로 불가).</p>
+    <h2>상품별 광고 상세 <span class="muted" style="font-size:12px">· ${periodLbl}</span>${STATE.campFilter?` <span class="bdg conf">캠페인 ‘${escapeHtml(STATE.campFilter)}’ 필터</span> <button id="prodCampClear" style="font-size:11.5px;padding:3px 9px">전체 보기</button>`:""}</h2>
+    <p class="hint">열 머리글을 클릭하면 정렬(오름/내림 전환) · 상품명 검색 · 체크한 상품만 <b>선택 합계</b>·<b>추이 그래프</b>에 반영. ROAS·CTR·CPC는 광고전환매출 기준(실판매액 보정은 상품별로 불가).${STATE.campFilter?` <b>지금은 캠페인 ‘${escapeHtml(STATE.campFilter)}’ 소속 상품/날짜만 집계 중.</b>`:""}</p>
     <div class="prodbar">
       <input type="text" id="prodSearch" placeholder="🔎 상품명 검색" value="${escapeHtml(STATE.prodSearch)}">
       <button id="prodAll">전체 선택</button>
@@ -1145,6 +1168,7 @@ function renderProductPanel(){
   c.innerHTML=html;
   if(trendHtml) lineChart($("#prodTrend"), tr.labels, tr.series, {fmt:wonShort, labelMax:8, labelAll:true});
 
+  $("#prodCampClear")?.addEventListener("click",()=>{ STATE.campFilter=null; render(); });
   const ensureSet=()=>{ if(STATE.prodSel===null) STATE.prodSel=new Set(allNames); return STATE.prodSel; };
   c.querySelectorAll("th.sortable").forEach(h=>h.addEventListener("click",()=>{
     const k=h.dataset.k;
@@ -1431,6 +1455,7 @@ $("#brandSeg").addEventListener("click",e=>{
   STATE.brandId=b.dataset.b;
   STATE.startDate=null; STATE.endDate=null; STATE.rangeInit=false;  // 브랜드 전환 시 기간 기본값 재적용
   STATE.prodSel=null; STATE.prodOnlySel=false; STATE.prodSearch=""; // 상품 선택·검색 초기화
+  STATE.campFilter=null; STATE.campSearch="";                       // 캠페인 필터·검색 초기화
   [...$("#brandSeg").children].forEach(x=>x.classList.toggle("on",x===b));
   load(false);
 });
