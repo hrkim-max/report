@@ -183,6 +183,10 @@ const CONFIG = {
   // 판매액/실판매액/광고전환매출/집행광고비/지원금/노출·클릭·판매수 확정치 소스. 월별 뷰·월간보고 공용.
   MONTHLY_CSV: PUB+"1731443920",
 
+  // '캠페인매핑' 탭 CSV — 상품(자사 제품명)↔캠페인 매핑. 헤더: 브랜드(선택) · 자사 제품명 · 캠페인.
+  // 탭을 만든 뒤 gid를 PUB+"gid" 형태로 넣으세요. (비우면 캠페인별 패널이 표시되지 않습니다)
+  CAMPAIGN_CSV: "",
+
   // 전환 추적(어트리뷰션) 기간(일). 최근 이 기간은 '잠정'으로 표시합니다.
   ATTRIB_DAYS: 14,
 
@@ -247,7 +251,8 @@ function parseAd(text){
   const ci={ y:find(["년"]), m:find(["월"]), d:find(["일"]), name:find(["자사 제품명","제품명"]),
              cost:find(["집행 광고비","광고비"]),
              rev:find(["전환 매출"]), cnt:find(["판매 수"]),
-             imp:find(["노출 수"]), clk:find(["클릭 수"]) };
+             imp:find(["노출 수"]), clk:find(["클릭 수"]),
+             camp:find(["캠페인"]) };
   const daily={}; const prodDaily=[];
   for(let i=h+1;i<rows.length;i++){
     const r=rows[i]; if(!r || r.length<=ci.cost) continue;
@@ -259,7 +264,8 @@ function parseAd(text){
     (daily[k] ||= {cost:0,adRev:0,cnt:0,imp:0,clk:0});
     daily[k].cost+=cost; daily[k].adRev+=adRev; daily[k].cnt+=cnt; daily[k].imp+=imp; daily[k].clk+=clk;
     const name=ci.name>=0?String(r[ci.name]||"").trim():"";
-    if(name) prodDaily.push({key:k,name,cost,adRev,cnt,imp,clk});
+    const camp=ci.camp>=0?String(r[ci.camp]||"").trim():"";   // 광고 데이터 탭에 '캠페인' 열이 있으면 사용
+    if(name) prodDaily.push({key:k,name,cost,adRev,cnt,imp,clk,camp});
   }
   return {daily, prodDaily};
 }
@@ -685,6 +691,9 @@ function render(){
     </div>
   </div>`;
 
+  // 캠페인별 효율 패널 (매핑 있을 때) → 상품별 패널보다 먼저
+  if(STATE.prodDaily && STATE.prodDaily.length && brandHasCampaigns(STATE.brandId)) html+=`<div id="campPanel"></div>`;
+
   // 상품별 상세 패널 (주간/월별 상세보다 먼저 표시)
   if(STATE.prodDaily && STATE.prodDaily.length) html+=`<div id="prodPanel"></div>`;
 
@@ -769,6 +778,7 @@ function render(){
 
   $("#detailToggle")?.addEventListener("click",()=>{ STATE.detailAll=!STATE.detailAll; render(); });
   renderAlertPanel();
+  renderCampaignPanel();
   renderProductPanel();
 }
 
@@ -789,6 +799,120 @@ function aggregateProductsIn(s, e){
     m.cpc=m.clk>0?m.cost/m.clk:null;
   }
   return arr;
+}
+
+/* ---- 캠페인 판정 (일자 단위) ----
+   우선순위: ①광고 데이터 탭의 '캠페인' 열(행 그대로) → ②매핑 탭(기간형: 시작일~종료일로 그날 판정) */
+let CAMPMAP=null;   // {byBrand:{bid:[{name,camp,start,end}]}}
+function parseCampaignMap(text){
+  const rows=parseCSV(text).filter(r=>r.some(c=>String(c).trim()!==""));
+  if(!rows.length) return {byBrand:{}};
+  let h=rows.findIndex(r=>r.some(c=>c.includes("캠페인")) && r.some(c=>c.includes("제품")||c.includes("상품")));
+  if(h<0) h=0;
+  const hdr=rows[h].map(c=>String(c).trim());
+  const idxBrand=hdr.findIndex(c=>c.includes("브랜드"));
+  const idxName=hdr.findIndex(c=>c==="자사 제품명")>=0?hdr.findIndex(c=>c==="자사 제품명")
+             : hdr.findIndex(c=>c.includes("제품명")||c.includes("상품명")||c==="상품"||c.includes("제품")||c.includes("상품"));
+  const idxCamp=hdr.findIndex(c=>c.includes("캠페인"));
+  const idxStart=hdr.findIndex(c=>c.includes("시작"));
+  const idxEnd=hdr.findIndex(c=>c.includes("종료")||c.includes("끝"));
+  if(idxName<0||idxCamp<0) return {byBrand:{}};
+  const brandOf=(s)=>{ s=String(s||"").trim().toLowerCase();
+    const b=CONFIG.BRANDS.find(x=>x.alias.some(a=>a.toLowerCase()===s)||x.name.toLowerCase()===s); return b?b.id:null; };
+  const normDate=(s)=>{ const m=String(s||"").trim().match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/); return m?`${m[1]}-${pad(+m[2])}-${pad(+m[3])}`:null; };
+  const byBrand={};
+  for(let i=h+1;i<rows.length;i++){
+    const r=rows[i]; const name=String(r[idxName]||"").trim(), camp=String(r[idxCamp]||"").trim();
+    if(!name||!camp) continue;
+    const bid = idxBrand>=0 ? (brandOf(r[idxBrand])||"*") : "*";
+    (byBrand[bid] ||= []).push({name, camp,
+      start: idxStart>=0?normDate(r[idxStart]):null,
+      end: idxEnd>=0?normDate(r[idxEnd]):null });
+  }
+  return {byBrand};
+}
+function mapHasCampaigns(bid){ return !!(CAMPMAP && ((CAMPMAP.byBrand[bid]&&CAMPMAP.byBrand[bid].length) || (CAMPMAP.byBrand["*"]&&CAMPMAP.byBrand["*"].length))); }
+// '-' · 빈값 · 미지정 표기는 실제 캠페인으로 세지 않음(기존/미분류)
+function realCamp(v){ v=(v||"").trim(); return (v && v!=="-" && v!=="(미지정)" && v!=="미지정") ? v : ""; }
+function brandHasCampaigns(bid){
+  if(mapHasCampaigns(bid)) return true;
+  return STATE.prodDaily && STATE.prodDaily.some(r=>realCamp(r.camp));   // 광고 데이터 탭 '캠페인' 열에 실제 캠페인명이 있으면
+}
+// 매핑 탭에서 (상품, 날짜)에 해당하는 캠페인 — 시작일~종료일이 그날을 덮는 항목
+function resolveCamp(bid, name, dateKey){
+  if(!CAMPMAP) return null;
+  for(const list of [CAMPMAP.byBrand[bid], CAMPMAP.byBrand["*"]]){
+    if(!list) continue;
+    for(const e of list){
+      if(e.name!==name) continue;
+      if((!e.start||dateKey>=e.start) && (!e.end||dateKey<=e.end)) return e.camp;
+    }
+  }
+  return null;
+}
+// 한 광고 데이터 행의 캠페인: 광고열(실제 캠페인명) 우선 → 매핑탭(기간형) → (미지정)
+function campForRow(r){ return realCamp(r.camp) || resolveCamp(STATE.brandId, r.name, r.key) || "(미지정)"; }
+function aggregateCampaigns(){
+  if(!brandHasCampaigns(STATE.brandId)) return null;
+  const s=STATE.startDate, e=STATE.endDate, map={};
+  for(const r of STATE.prodDaily){                 // 일자 단위 → 한 상품이 기간 내 여러 캠페인에 걸치면 날짜별로 분리
+    if(s&&r.key<s)continue; if(e&&r.key>e)continue;
+    const camp=campForRow(r);
+    (map[camp] ||= {name:camp,cost:0,adRev:0,cnt:0,imp:0,clk:0,pset:new Set()});
+    const m=map[camp]; m.cost+=r.cost;m.adRev+=r.adRev;m.cnt+=r.cnt;m.imp+=r.imp;m.clk+=r.clk; m.pset.add(r.name);
+  }
+  const arr=Object.values(map);
+  for(const m of arr){ m.prods=m.pset.size; delete m.pset;
+    m.roas=m.cost>0?m.adRev/m.cost*100:null; m.ctr=m.imp>0?m.clk/m.imp*100:null; m.cpc=m.clk>0?m.cost/m.clk:null; }
+  arr.sort((a,b)=>b.cost-a.cost);
+  return arr;
+}
+function renderCampaignPanel(){
+  const el=$("#campPanel"); if(!el) return;
+  const camps=aggregateCampaigns();
+  if(!camps || !camps.length){ el.innerHTML=""; return; }
+  const periodLbl = rangeActive()?`${STATE.startDate||"~"} ~ ${STATE.endDate||"~"}`:"전체 기간";
+  // 캠페인 추이(전환매출) 선그래프
+  const trProds=[]; // 캠페인별 합계를 일자 시계열로
+  const s=STATE.startDate, e=STATE.endDate, periods=new Set(), cmap={};
+  for(const r of STATE.prodDaily){
+    if(s&&r.key<s)continue; if(e&&r.key>e)continue;
+    const camp=campForRow(r);
+    periods.add(r.key); (cmap[camp] ||= {})[r.key]=((cmap[camp]||{})[r.key]||0)+r.adRev;
+  }
+  let keys=[...periods].sort(); if(keys.length>62) keys=keys.slice(-62);
+  const labels=keys.map(k=>k.slice(5).replace("-","/"));
+  const topCamps=camps.slice(0,8).map(c=>c.name);
+  const series=topCamps.map((nm,i)=>({name:nm,color:LINE_COLORS[i%LINE_COLORS.length],
+    values:keys.map(k=> (cmap[nm]&&cmap[nm][k]!=null)?cmap[nm][k]:0)}));
+  const tot=camps.reduce((a,c)=>{a.cost+=c.cost;a.adRev+=c.adRev;a.cnt+=c.cnt;a.imp+=c.imp;a.clk+=c.clk;return a;},{cost:0,adRev:0,cnt:0,imp:0,clk:0});
+  const totRoas=tot.cost>0?tot.adRev/tot.cost*100:null, totCtr=tot.imp>0?tot.clk/tot.imp*100:null, totCpc=tot.clk>0?tot.cost/tot.clk:null;
+  el.innerHTML=`<div class="panel">
+    <h2>🎯 캠페인별 효율 <span class="muted" style="font-size:12px">· ${periodLbl} · ${camps.length}개 캠페인</span></h2>
+    <p class="hint">상품을 캠페인별로 묶어 집계합니다(광고 데이터 탭의 '캠페인' 열 또는 '캠페인매핑' 탭 기준). 미매핑 상품은 (미지정). 광고전환매출·ROAS는 잠정(전환 추적 중)일 수 있어요. 기간은 상단 달력.</p>
+    ${labels.length>=2?`<div class="legend">${series.map(x=>`<span><span class="dot" style="background:${x.color}"></span>${escapeHtml(x.name)}</span>`).join("")}</div><div class="chartbox" id="campTrend"></div>`:""}
+    <div class="tblwrap" style="margin-top:10px"><table class="prod">
+      <thead><tr><th class="pname">캠페인</th><th>상품수</th><th>광고비</th><th>광고전환매출</th><th>명목 ROAS</th>
+        <th>노출수</th><th>클릭수</th><th title="클릭수 ÷ 노출수">CTR</th><th title="광고비 ÷ 클릭수">CPC</th><th>판매수</th></tr></thead>
+      <tbody>${camps.map(c=>`<tr>
+        <td class="pname">${escapeHtml(c.name)}</td>
+        <td class="num muted">${c.prods}</td>
+        <td class="num">${won(c.cost)}</td>
+        <td class="num">${won(c.adRev)}</td>
+        <td class="num">${c.roas==null?'<span class="muted">—</span>':pct(c.roas)}</td>
+        <td class="num muted">${Math.round(c.imp).toLocaleString("ko-KR")}</td>
+        <td class="num muted">${Math.round(c.clk).toLocaleString("ko-KR")}</td>
+        <td class="num muted">${c.ctr==null?'—':pct(c.ctr,2)}</td>
+        <td class="num muted">${c.cpc==null?'—':won(c.cpc)}</td>
+        <td class="num muted">${Math.round(c.cnt).toLocaleString("ko-KR")}</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td class="pname">합계</td><td class="num">${camps.reduce((a,c)=>a+c.prods,0)}</td>
+        <td class="num">${won(tot.cost)}</td><td class="num">${won(tot.adRev)}</td><td class="num">${totRoas==null?"—":pct(totRoas)}</td>
+        <td class="num">${Math.round(tot.imp).toLocaleString("ko-KR")}</td><td class="num">${Math.round(tot.clk).toLocaleString("ko-KR")}</td>
+        <td class="num">${totCtr==null?"—":pct(totCtr,2)}</td><td class="num">${totCpc==null?"—":won(totCpc)}</td>
+        <td class="num">${Math.round(tot.cnt).toLocaleString("ko-KR")}</td></tr></tfoot>
+    </table></div>
+  </div>`;
+  if(labels.length>=2) lineChart($("#campTrend"), labels, series, {fmt:wonShort, labelMax:8, labelAll:true});
 }
 /* ---- 상품 점검 리포트 (효율 급감·위험 감지) ----
    전환 추적 지연을 피하려고 '확정 구간'(데이터 마지막날 - 추적일)까지만 비교합니다. */
@@ -1248,10 +1372,15 @@ async function load(force){
     $("#footnote").innerHTML="";
     return;
   }
-  // '월별 정리' 확정 집계 (브랜드 공통, 1회만)
+  // 월간보고 확정 집계 (브랜드 공통, 1회만)
   if(!MONTHLY && CONFIG.MONTHLY_CSV){
     try{ MONTHLY=parseMonthly(await fetchCSV(CONFIG.MONTHLY_CSV)); }
     catch(e){ console.warn("monthly load fail",e); MONTHLY={byKey:{},months:[]}; }
+  }
+  // 캠페인 매핑 (브랜드 공통, 1회만)
+  if(!CAMPMAP && CONFIG.CAMPAIGN_CSV){
+    try{ CAMPMAP=parseCampaignMap(await fetchCSV(CONFIG.CAMPAIGN_CSV)); }
+    catch(e){ console.warn("campaign map fail",e); CAMPMAP={}; }
   }
   // 실판매액 데이터(선택)
   let sales={}, salesFailed=false;
@@ -1290,7 +1419,7 @@ $("#brandSeg").addEventListener("click",e=>{
 });
 
 $("#refreshBtn").addEventListener("click",()=>{
-  MONTHLY=null;
+  MONTHLY=null; CAMPMAP=null;
   if(STATE.mode==="report"){ STATE.cache={}; REPORT=null; showReport(true); }
   else load(true);
 });
