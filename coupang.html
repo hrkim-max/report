@@ -1012,6 +1012,9 @@ function render(){
   /* --- 채널 비교 --- */
   html+=`<div id="chPanel"></div>`;
 
+  /* --- 캠페인 비교 --- */
+  html+=`<div id="campPanel"></div>`;
+
   /* --- 자사 매출 기준 (매마 매출) --- */
   html+=`<div id="maemaPanel"></div>`;
 
@@ -1153,6 +1156,7 @@ function render(){
 
   $("#detailToggle")?.addEventListener("click",()=>{ STATE.detailAll=!STATE.detailAll; render(); });
   renderChannelPanel();
+  renderCampaignPanel();
   renderMaemaPanel();
   renderAlertPanel();
   renderBreakdown();
@@ -1220,6 +1224,84 @@ function renderChannelPanel(){
     name:p.c.name, color:p.c.color, values:keys.map(k=>p.m[k]?p.m[k].cost:0) })), {fmt:wonShort});
   lineChart($("#chChartRoas"), labels, perCh.map(p=>({
     name:p.c.name, color:p.c.color, values:keys.map(k=>p.m[k]?p.m[k].roas:null) })), {fmt:v=>Math.round(v)+"%", unit:"%"});
+}
+
+/* ============================================================
+   캠페인 비교 (시트 J열 '캠페인명' 기준)
+   ============================================================ */
+function campColor(name, i){ return LINE_COLORS[i % LINE_COLORS.length]; }
+function renderCampaignPanel(){
+  const el=$("#campPanel"); if(!el) return;
+  // 캠페인 필터는 무시하고(항상 전 캠페인 비교), 채널·기간 필터는 적용
+  const rows=filterRows({camp:"all"});
+  if(!rows.length){ el.innerHTML=""; return; }
+  const arr=groupSum(rows, r=>r.camp).sort((a,b)=>b.cost-a.cost);
+  if(!arr.length){ el.innerHTML=""; return; }
+  const sum=arr.reduce((a,g)=>a+g.cost,0);
+  const sumRev=arr.reduce((a,g)=>a+g.rev,0);
+  // 채널 표기(캠페인이 어느 채널 것인지)
+  const chOfCamp={}; for(const r of rows) (chOfCamp[r.camp] ||= new Set()).add(r.ch);
+
+  const boxes=arr.map((g,i)=>{
+    const share = sum>0 ? g.cost/sum*100 : 0;
+    const chs=[...(chOfCamp[g.key]||[])].map(chName).join("·");
+    const on = STATE.camp===g.key;
+    return `<div class="chbox" style="${on?"outline:2px solid var(--net);outline-offset:-1px":""}">
+      <div class="t"><span class="dot" style="background:${campColor(g.key,i)}"></span>${escapeHtml(g.key)}
+        <span class="muted" style="font-weight:400;font-size:11.5px" title="전체 광고비 중 이 캠페인이 차지하는 비율">· ${chs} · 광고비 점유율 ${pct(share,1)}</span></div>
+      <div class="kv"><span>광고비</span><b>${won(g.cost)}</b></div>
+      <div class="kv"><span>광고전환매출</span><b>${won(g.rev)}</b></div>
+      <div class="kv"><span>ROAS</span><b class="${g.roas!=null&&g.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${g.roas==null?"—":pct(g.roas)}</b></div>
+      <div class="kv"><span>노출 / 클릭</span><b>${cnt(g.imp)} / ${cnt(g.clk)}</b></div>
+      <div class="kv"><span>CTR / CPC</span><b>${g.ctr==null?"—":pct(g.ctr,2)} / ${g.cpc==null?"—":won(g.cpc)}</b></div>
+      <div class="kv"><span>주문수 / 전환율</span><b>${cnt(g.ord)} / ${g.cvr==null?"—":pct(g.cvr,2)}</b></div>
+      <div class="kv"><span>CPA / 객단가</span><b>${g.cpa==null?"—":won(g.cpa)} / ${g.aov==null?"—":won(g.aov)}</b></div>
+      <div style="margin-top:9px"><button class="campPick" data-c="${escapeHtml(g.key)}" style="width:100%;font-size:12px;padding:6px">
+        ${on?"✓ 선택됨 — 전체로":"이 캠페인만 보기"}</button></div>
+    </div>`;
+  }).join("");
+
+  const shareBar = sum>0 ? `<div class="share">${arr.map((g,i)=>`<i style="width:${(g.cost/sum*100).toFixed(2)}%;background:${campColor(g.key,i)}" title="${escapeHtml(g.key)} 광고비 ${won(g.cost)}"></i>`).join("")}</div>
+    <div class="legend" style="margin-top:0">${arr.map((g,i)=>`<span><span class="dot" style="background:${campColor(g.key,i)}"></span>${escapeHtml(g.key)} ${pct(sum>0?g.cost/sum*100:0,1)}</span>`).join("")}
+      <span class="muted">· 합계 광고비 ${won(sum)} · 합계 전환매출 ${won(sumRev)} · 합계 ROAS ${sum>0?pct(sumRev/sum*100):"—"}</span></div>` : "";
+
+  el.innerHTML=`<div class="panel">
+    <h2>캠페인 비교 <span class="muted" style="font-size:12px">· 시트 J열 '캠페인명' 기준 · ${arr.length}개${STATE.ch!=="all"?` · ${chName(STATE.ch)}`:""}${rangeActive()?" · 기간 적용":""}</span></h2>
+    <p class="hint">상단 캠페인 필터와 무관하게 <b>모든 캠페인을 비교</b>합니다(판매 채널·기간 필터는 적용). 카드의 버튼을 누르면 그 캠페인만 보도록 필터가 걸립니다.</p>
+    ${shareBar}
+    <div class="chgrid">${boxes}</div>
+    <div class="charts">
+      <div>
+        <div class="legend">${arr.map((g,i)=>`<span><span class="dot" style="background:${campColor(g.key,i)}"></span>${escapeHtml(g.key)}</span>`).join("")}</div>
+        <div class="chartbox" id="campChartCost"></div>
+      </div>
+      <div>
+        <div class="legend"><span class="muted">캠페인별 ROAS</span></div>
+        <div class="chartbox" id="campChartRoas"></div>
+      </div>
+    </div>
+  </div>`;
+
+  // 캠페인별 기간 추이
+  const chartMax=CONFIG.CHART_MAX[STATE.mode]||8;
+  const per=arr.map((g,i)=>{
+    const gp=groupPeriod(filterRows({camp:g.key}), STATE.mode);
+    const m={}; gp.forEach(x=>m[x.key]=x);
+    return {name:g.key, color:campColor(g.key,i), m, g:gp};
+  });
+  const keySet=new Set(); per.forEach(p=>p.g.forEach(x=>keySet.add(x.key)));
+  const keys=[...keySet].sort().slice(-chartMax);
+  const labels=keys.map(k=>{ const any=per.map(p=>p.m[k]).find(Boolean); return any?any.label:k; });
+  barChart($("#campChartCost"), labels, per.map(p=>({
+    name:p.name, color:p.color, values:keys.map(k=>p.m[k]?p.m[k].cost:0) })), {fmt:wonShort});
+  lineChart($("#campChartRoas"), labels, per.map(p=>({
+    name:p.name, color:p.color, values:keys.map(k=>p.m[k]?p.m[k].roas:null) })),
+    {fmt:v=>Math.round(v)+"%", unit:"%", labelMax:2});
+
+  el.querySelectorAll(".campPick").forEach(b=>b.addEventListener("click",()=>{
+    STATE.camp = (STATE.camp===b.dataset.c) ? "all" : b.dataset.c;
+    STATE.prodSel=null; refresh();
+  }));
 }
 
 /* ============================================================
@@ -1555,7 +1637,12 @@ function renderProductPanel(){
   const rows=filterRows();
   if(!rows.length){ c.innerHTML=""; return; }
   const prods=groupSum(rows, r=>r.name).map(g=>{ g.name=g.key; return g; });
-  // 광고비 비중 = 이 상품 광고비 ÷ 현재 조건(채널·브랜드·캠페인·기간) 전체 광고비
+  // 상품이 어느 캠페인(시트 J열)에서 집행됐는지
+  const campOf={};
+  for(const r of rows){ (campOf[r.name] ||= new Set()).add(r.camp); }
+  for(const p of prods) p.camps=[...(campOf[p.name]||[])].sort().join(", ");
+  const campCount=new Set(rows.map(r=>r.camp)).size;
+  // 광고비 비중 = 이 상품 광고비 ÷ 현재 조건(채널·캠페인·기간) 전체 광고비
   const costAll=prods.reduce((a,p)=>a+p.cost,0);
   for(const p of prods) p.share = costAll>0 ? p.cost/costAll*100 : null;
   const allNames=prods.map(p=>p.name);
@@ -1563,6 +1650,7 @@ function renderProductPanel(){
   const key=STATE.prodSort, dir=STATE.prodDir;
   prods.sort((a,b)=>{
     if(key==="name") return dir*a.name.localeCompare(b.name);
+    if(key==="camps") return dir*String(a.camps||"").localeCompare(String(b.camps||"")) || a.name.localeCompare(b.name);
     const va=a[key]==null?-Infinity:a[key], vb=b[key]==null?-Infinity:b[key];
     return dir*(va-vb) || a.name.localeCompare(b.name);
   });
@@ -1574,7 +1662,11 @@ function renderProductPanel(){
   const t=derive(selProds.reduce((a,p)=>{a.cost+=p.cost;a.rev+=p.rev;a.ord+=p.ord;a.qty+=p.qty;a.imp+=p.imp;a.clk+=p.clk;return a;},blank()));
   const periodLbl = rangeActive()?`${STATE.startDate||DATA_MIN} ~ ${STATE.endDate||DATA_MAX}`:"전체 기간";
   const arrow=(k)=> k===key ? (dir===1?" ▲":" ▼") : "";
-  const th=PROD_COLS.map(col=>`<th class="sortable ${col.cls||""}" data-k="${col.k}"${col.title?` title="${col.title}"`:""}>${col.label}${arrow(col.k)}</th>`).join("");
+  // 캠페인이 2개 이상일 때만 캠페인 컬럼 표시
+  const cols = campCount>1
+    ? [PROD_COLS[0], {k:"camps",label:"캠페인",cls:"pname",title:"시트 J열 캠페인명"}, ...PROD_COLS.slice(1)]
+    : PROD_COLS;
+  const th=cols.map(col=>`<th class="sortable ${col.cls||""}" data-k="${col.k}"${col.title?` title="${col.title}"`:""}>${col.label}${arrow(col.k)}</th>`).join("");
 
   // 상품별 광고비 막대 (광고비 상위 12개)
   const costTop=[...selProds].filter(p=>p.cost>0).sort((a,b)=>b.cost-a.cost).slice(0,12);
@@ -1627,6 +1719,7 @@ function renderProductPanel(){
     html+=`<tr class="${on?"":"off"}">
       <td class="chk"><input type="checkbox" class="pchk" data-name="${escapeHtml(p.name)}"${on?" checked":""}></td>
       <td class="pname">${escapeHtml(p.name)}</td>
+      ${campCount>1?`<td class="pname muted" style="font-size:12px">${escapeHtml(p.camps||"—")}</td>`:""}
       <td class="num">${won(p.cost)}</td>
       <td class="num">${p.share==null?'<span class="muted">—</span>':`${pct(p.share,1)} <span class="sbar" style="--w:${Math.min(100,p.share).toFixed(1)}%"></span>`}</td>
       <td class="num">${won(p.rev)}</td>
@@ -1640,10 +1733,11 @@ function renderProductPanel(){
       <td class="num muted">${cnt(p.qty)}</td>
     </tr>`;
   }
-  if(!shown.length) html+=`<tr><td colspan="13" class="muted" style="text-align:center;padding:18px">검색 결과가 없습니다</td></tr>`;
+  if(!shown.length) html+=`<tr><td colspan="${cols.length+1}" class="muted" style="text-align:center;padding:18px">검색 결과가 없습니다</td></tr>`;
   html+=`</tbody><tfoot><tr>
       <td class="chk"></td>
       <td class="pname">선택 합계 (${selCount}개)</td>
+      ${campCount>1?`<td class="pname muted" style="font-size:12px">${campCount}개 캠페인</td>`:""}
       <td class="num">${won(t.cost)}</td>
       <td class="num">${costAll>0?pct(t.cost/costAll*100,1):"—"}</td>
       <td class="num">${won(t.rev)}</td>
