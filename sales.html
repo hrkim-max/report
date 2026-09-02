@@ -209,7 +209,7 @@ var STATE = {
   preset:'7d', start:null, end:null,
   cmp:'prev', cmpStart:null, cmpEnd:null,
   chSel:null,               // 채널별 뷰 선택(Set|null=전체)
-  pDetail:null, catCh:null, tMonth:null, sMonth:null, chPick:null, // 각 뷰 선택값(제품/카테고리/월/클릭 채널)
+  pDetail:null, catCh:null, tMonth:null, sMonth:null, chPick:null, chDetailView:'table', // 각 뷰 선택값(제품/카테고리/월/클릭 채널/채널상세 표·추이)
   tMode:'month', tYear:null, tFilter:'', tfFocus2:false, // 목표 대비: 월별/연간 모드 + 연도 + 채널 검색
   surgeDim:'day', surgeCh:null, surgeChTop:1, surgeDayPick:null, // 급상승: 분석 대상 + 채널 스코프 + 선택 일자(하단 채널 상세)
   tf:'', tfFocus:false,     // (구) 표 이름 필터
@@ -616,10 +616,23 @@ function renderChannel(app){
     var parr=Object.keys(pmap).map(function(k){return pmap[k];}).sort(function(a,b){return b[m]-a[m];});
     var ptot=parr.reduce(function(s,x){return s+x[m];},0)||1;
     var ctv=arr.filter(function(x){return x.key===chPick;})[0];
+    var daily=crows.length&&crows[0].date;   // 일 단위 데이터(agg_chprod_daily) 사용 여부
     var c3=el('div',{class:'card'});
     c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">선택 기간 기준 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+'</span>'));
-    if(!parr.length) c3.appendChild(el('div',{class:'small muted'},'해당 채널의 제품 데이터가 없습니다(월 단위 집계 기준).'));
-    else c3.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
+    var cdv=STATE.chDetailView||'table';
+    var seg=el('div',{class:'seg',style:'margin:0 0 10px'});
+    [['table','표'],['trend','추이']].forEach(function(o){ var b=el('button',null,o[1]); if(cdv===o[0])b.className='on'; b.onclick=function(){STATE.chDetailView=o[0];render();}; seg.appendChild(b); });
+    c3.appendChild(seg);
+    if(!parr.length) c3.appendChild(el('div',{class:'small muted'},'해당 채널의 제품 데이터가 없습니다.'));
+    else if(cdv==='trend'){
+      var byKey=daily?function(r){return bucketOf(r.date);}:function(r){return r.ym;};
+      var bkm={}; crows.forEach(function(r){bkm[byKey(r)]=1;}); var bk=Object.keys(bkm).sort();
+      var topP=parr.slice(0,6).map(function(x){return x.key;});
+      var series=topP.map(function(pd,i){ var sm=sumBy(crows.filter(function(r){return r.prod===pd;}),byKey);
+        return {name:pd,color:COLORS[i%COLORS.length],data:bk.map(function(b){return sm[b]?sm[b][m]:0;})}; });
+      c3.appendChild(el('div',{class:'small muted',style:'margin:-2px 0 8px'}, (daily?(STATE.gran==='day'?'일별':'월별')+' (기간 따라 자동, 상단 일/월 버튼)':'월별')+' · 상위 '+topP.length+'개 제품 추이'));
+      c3.appendChild(lineChart(bk,series)); c3.appendChild(legendOf(topP));
+    } else c3.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
       parr.map(function(x){return [x.key,catOf[x.key]||'',x[m],x[m]/ptot,x.cnt,x.qty];}),
       [null,null,'won','share','num','num'], 'ch_prod'));
     app.appendChild(c3);
