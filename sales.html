@@ -671,15 +671,19 @@ function renderChannel(app){
     var ptot=parr.reduce(function(s,x){return s+x[m];},0)||1;
     var ctv=arr.filter(function(x){return x.key===chPick;})[0];
     var daily=crows.length&&crows[0].date;   // 일 단위 데이터(agg_chprod_daily) 사용 여부
+    var showD=!!(cr&&STATE.chpd&&STATE.chpd.length);   // 증감률 표기 가능(비교기간 + 일단위 데이터)
     var c3=el('div',{class:'card'});
-    c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">선택 기간 기준 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+' · <b>제품 클릭 시 추이</b></span>'));
+    c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">선택 기간 기준 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+(showD?' · 증감='+cr.label+'比':'')+' · <b>제품 클릭 시 추이</b></span>'));
     if(!parr.length){ c3.appendChild(el('div',{class:'small muted'},'해당 채널의 제품 데이터가 없습니다.')); }
     else {
       var prodNames=parr.map(function(x){return x.key;});
       var ppick=(STATE.chProdPick&&prodNames.indexOf(STATE.chProdPick)>=0)?STATE.chProdPick:null;
-      c3.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
-        parr.map(function(x){return [x.key,catOf[x.key]||'',x[m],x[m]/ptot,x.cnt,x.qty];}),
-        [null,null,'won','share','num','num'], 'ch_prod','매출',false,{
+      var cpRate=showD?rateMapOf(deltaRows(STATE.chpd.filter(function(r){return chDisp(r.ch)===chPick;}), function(r){return r.prod;})):{};
+      var ppH=['제품','카테고리','매출','비중','건수','수량'], ppT=[null,null,'won','share','num','num'];
+      if(showD){ ppH.splice(3,0,'증감률'); ppT.splice(3,0,'pct'); }
+      c3.appendChild(tableOf(ppH,
+        parr.map(function(x){ var b=[x.key,catOf[x.key]||'',x[m],x[m]/ptot,x.cnt,x.qty]; if(showD)b.splice(3,0,cpRate[x.key]); return b; }),
+        ppT, 'ch_prod','매출',false,{
           onRowClick:function(r){ STATE.chProdPick=(STATE.chProdPick===r[0])?null:r[0]; render(); },
           isActive:function(r){ return r[0]===ppick; }
         }));
