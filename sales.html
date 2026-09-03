@@ -88,16 +88,6 @@ svg{display:block;width:100%;height:auto}
 </style>
 </head>
 <body>
-<div id="gate" style="position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center">
-  <div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 26px;width:320px;max-width:90vw;text-align:center">
-    <div style="font-size:30px">🔒</div>
-    <div style="font-size:16px;font-weight:700;margin:8px 0 2px">프로젝트컴퍼니 매출 대시보드</div>
-    <div class="muted small" style="margin-bottom:16px">비밀번호를 입력하세요</div>
-    <input id="gatePw" type="password" class="tinput" style="width:100%;text-align:center;font-size:15px;padding:9px" placeholder="비밀번호" autocomplete="current-password">
-    <div id="gateErr" class="small" style="color:var(--bad);height:18px;margin:6px 0"></div>
-    <button id="gateBtn" class="btn pri" style="width:100%;padding:9px">열기</button>
-  </div>
-</div>
 <div class="wrap">
   <header class="top">
     <h1>📊 프로젝트컴퍼니 매출 대시보드</h1>
@@ -557,7 +547,8 @@ function trendCard(title,sub,rows,chFilter){
     var crows=STATE.daily.filter(function(r){return notExcl(r)&&r.date>=cr.start&&r.date<=cr.end&&(!chFilter||chFilter(r));});
     var cm=sumBy(crows,function(r){return bucketOf(r.date);});
     var cb=Object.keys(cm).sort();
-    series.push({name:cr.label,data:buckets.map(function(_,i){return cb[i]?cm[cb[i]][m]:0;}),color:COLORS[4],dash:true});
+    series.push({name:cr.label,data:buckets.map(function(_,i){return cb[i]?cm[cb[i]][m]:0;}),color:COLORS[4],dash:true,
+      tipLabels:buckets.map(function(_,i){return cb[i]||'(데이터 없음)';})});
   }
   var c=el('div',{class:'card'});
   c.appendChild(el('h3',null,title+' <span class="h-sub">'+sub+(cr?' · 점선='+cr.label:'')+'</span>'));
@@ -1142,7 +1133,8 @@ function lineChart(labels,series){
     pts.forEach(function(p,i){
       if(!s.dash) svg+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="'+(n===1?4:3)+'" fill="'+s.color+'" stroke="var(--panel)" stroke-width="1"/>';
       else svg+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.2" fill="'+s.color+'" opacity="0.7"/>';
-      svg+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="8" fill="transparent" pointer-events="all" data-tip="'+escA(s.name+' · '+labels[i]+' · '+wonFull(s.data[i]))+'"/>';
+      var tl=(s.tipLabels&&s.tipLabels[i]!=null)?s.tipLabels[i]:labels[i];
+      svg+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="8" fill="transparent" pointer-events="all" data-tip="'+escA(s.name+' · '+tl+' · '+wonFull(s.data[i]))+'"/>';
     });
   });
   svg+='</svg>'; var d=el('div'); d.innerHTML=svg; attachTips(d); return d;
@@ -1212,26 +1204,8 @@ document.getElementById('refreshBtn').addEventListener('click',function(){
   });
 });
 
-/* ============================ 비밀번호 잠금 ============================ */
-// 주의: 소스를 열람할 수 있는 사람은 우회 가능한 가벼운 잠금입니다(완전 보안 아님).
-var PW_HASH='1d88a063de73ba7681894885d98427139c654905f84115d1c94963c1ffd5c340';
-var _loaded=false;
-function reveal(){ document.getElementById('gate').style.display='none'; if(!_loaded){ _loaded=true; load(); } }
-async function sha256hex(s){
-  if(window.crypto&&crypto.subtle){ var b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));
-    return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0');}).join(''); }
-  return null;
-}
-async function tryUnlock(){
-  var v=document.getElementById('gatePw').value;
-  var h=await sha256hex(v);
-  if(h===PW_HASH){ try{sessionStorage.setItem('pcmd_unlocked','1');}catch(e){} reveal(); }
-  else { document.getElementById('gateErr').textContent='비밀번호가 올바르지 않습니다.'; document.getElementById('gatePw').select(); }
-}
-document.getElementById('gateBtn').addEventListener('click',tryUnlock);
-document.getElementById('gatePw').addEventListener('keydown',function(e){ if(e.key==='Enter')tryUnlock(); });
-if(sessionStorage.getItem('pcmd_unlocked')==='1'){ reveal(); }
-else { setTimeout(function(){var f=document.getElementById('gatePw'); if(f)f.focus();},100); }
+/* 비밀번호 잠금 제거됨 — 페이지 로드시 바로 데이터 로드 */
+load();
 </script>
 </body>
 </html>
