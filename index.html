@@ -133,6 +133,11 @@
   .rep-memoT{color:var(--net);font-weight:700;font-size:13.5px;margin:12px 0 4px}
   .rep-memo{white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;color:var(--text)}
   .rep-missing{color:var(--muted);font-size:13px;padding:6px 0}
+  .rep-wk{overflow-x:auto;margin:2px 0 4px}
+  .rep-wk table{min-width:320px;width:auto;border-collapse:collapse;font-size:12.5px}
+  .rep-wk th,.rep-wk td{border-bottom:1px solid var(--border);padding:5px 14px 5px 0;text-align:right;white-space:nowrap}
+  .rep-wk th:first-child,.rep-wk td:first-child{text-align:left}
+  .rep-wk th{color:var(--muted);font-weight:600;font-size:11.5px}
   .loading{padding:60px 0;text-align:center;color:var(--muted)}
   .spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--net);border-radius:50%;
     display:inline-block;animation:sp 1s linear infinite;vertical-align:middle;margin-right:10px}
@@ -1280,6 +1285,20 @@ function brandReport(bid, ym){
     adjOverNet:(adjRev!=null&&net)?adjRev/net*100:null };
 }
 
+// 월(ym)의 주차별 ROAS/CTR/CPC (일별 광고데이터=상품리포트 기준)
+function weeklyForMonth(bid, ym){
+  const c=STATE.cache[bid]; if(!c||!c.daily) return [];
+  const g={};
+  for(const r of c.daily){
+    if(r.key.slice(0,7)!==ym) continue;
+    const ws=weekStart(r.date); const we=new Date(ws); we.setDate(we.getDate()+6);
+    const k=`${ws.getFullYear()}-${pad(ws.getMonth()+1)}-${pad(ws.getDate())}`;
+    (g[k] ||= {k, label:`${pad(ws.getMonth()+1)}/${pad(ws.getDate())}~${pad(we.getMonth()+1)}/${pad(we.getDate())}`, cost:0,adRev:0,imp:0,clk:0});
+    const o=g[k]; o.cost+=r.cost;o.adRev+=r.adRev;o.imp+=r.imp||0;o.clk+=r.clk||0;
+  }
+  return Object.values(g).sort((a,b)=>a.k<b.k?-1:1).map(o=>({label:o.label,
+    roas:o.cost>0?o.adRev/o.cost*100:null, ctr:o.imp>0?o.clk/o.imp*100:null, cpc:o.clk>0?o.cost/o.clk:null }));
+}
 function reportBlockHTML(idx, brand, ym){
   const d=brandReport(brand.id, ym);
   if(!d.has){
@@ -1298,6 +1317,15 @@ function reportBlockHTML(idx, brand, ym){
     <div class="rep-kv">전체 실판매액 대비 <b>${d.shareNet==null?"—":d.shareNet.toFixed(2)+"%"}</b><br>
       보정 광고 전환 매출 대비 <b>${d.shareAdj==null?"—":d.shareAdj.toFixed(2)+"%"}</b><br>
       보정 광고 전환 매출 = 실 판매액의 약 <b>${d.adjOverNet==null?"—":d.adjOverNet.toFixed(2)+"%"}</b></div>
+    ${(()=>{ const wk=weeklyForMonth(brand.id, ym); if(!wk.length) return "";
+      return `<div class="rep-sec">주차별 <span class="muted" style="font-weight:400;font-size:12px">(상품리포트 기준 · ROAS·CTR·CPC)</span></div>
+      <div class="rep-wk"><table>
+        <thead><tr><th>주차</th><th>ROAS</th><th>CTR</th><th>CPC</th></tr></thead>
+        <tbody>${wk.map(w=>`<tr><td>${w.label}</td>
+          <td class="num">${w.roas==null?'—':roasFmt(w.roas)}</td>
+          <td class="num">${w.ctr==null?'—':pct(w.ctr,2)}</td>
+          <td class="num">${w.cpc==null?'—':won(w.cpc)}</td></tr>`).join("")}</tbody>
+      </table></div>`; })()}
     ${d.memo?`<div class="rep-memoT">● ${brand.name} 광고 데이터</div><div class="rep-memo">${escapeHtml(d.memo)}</div>`:""}
   </div>`;
 }
@@ -1316,6 +1344,8 @@ function reportText(ym){
       `전체 실판매액 대비 ${d.shareNet==null?"—":d.shareNet.toFixed(2)+"%"}`,
       `보정 광고 전환 매출 대비 ${d.shareAdj==null?"—":d.shareAdj.toFixed(2)+"%"}`,
       `보정 광고 전환 매출 = 실 판매액의 약 ${d.adjOverNet==null?"—":d.adjOverNet.toFixed(2)+"%"}`);
+    const wk=weeklyForMonth(brand.id, ym);
+    if(wk.length){ lines.push(`주차별(상품리포트): `+wk.map(w=>`${w.label} ROAS ${w.roas==null?"—":roasFmt(w.roas)}/CTR ${w.ctr==null?"—":pct(w.ctr,2)}/CPC ${w.cpc==null?"—":won(w.cpc)}`).join("  ·  ")); }
     if(d.memo) lines.push(`● ${brand.name} 광고 데이터`, d.memo);
     lines.push("");
   });
