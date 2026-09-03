@@ -55,6 +55,9 @@ th.act{color:var(--text)}
 tbody tr:hover{background:var(--panel2)}
 tbody tr.rowsel{background:rgba(96,165,250,.18)}
 tbody tr.rowsel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.insight{margin:2px 0 12px;display:grid;gap:5px}
+.insight-li{font-size:13px;line-height:1.55;color:var(--text)}
+.insight-li .muted{color:var(--sub)}
 .tbl-wrap{overflow-x:auto;max-height:560px;overflow-y:auto}
 .mini{height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;display:inline-block;width:70px;vertical-align:middle}
 .mini>i{display:block;height:100%;background:var(--accent)}
@@ -451,6 +454,52 @@ function sumBy(rows,keyFn){ var m={}; rows.forEach(function(r){
   o.sales+=r.sales;o.pay+=r.pay;o.qty+=r.qty;o.cnt+=r.cnt; }); return m; }
 function bucketOf(date){ return STATE.gran==='day'?date:date.slice(0,7); }
 
+/* 항목별 현재/비교기간 증감. source=일단위 행(.date 보유), keyFn=항목키. cr 없으면 rate=NaN. */
+function deltaRows(source, keyFn, rowFilter){
+  var m=metric(), cr=cmpRange(), s=curStart(), e=curEnd();
+  var cur={}, prev={};
+  source.forEach(function(r){ if(rowFilter&&!rowFilter(r))return; var k=keyFn(r);
+    if(r.date>=s&&r.date<=e) cur[k]=(cur[k]||0)+r[m];
+    if(cr&&r.date>=cr.start&&r.date<=cr.end) prev[k]=(prev[k]||0)+r[m]; });
+  var keys={}; Object.keys(cur).forEach(function(k){keys[k]=1;}); Object.keys(prev).forEach(function(k){keys[k]=1;});
+  var tot=Object.keys(cur).reduce(function(a,k){return a+cur[k];},0)||1;
+  return Object.keys(keys).map(function(k){ var c=cur[k]||0,p=prev[k]||0;
+    return {key:k,cur:c,prev:p,diff:c-p,rate:(cr?(p?((c-p)/p*100):(c>0?Infinity:0)):NaN),share:c/tot}; });
+}
+function rateMapOf(delta){ var m={}; delta.forEach(function(d){m[d.key]=d.rate;}); return m; }
+function pctTxt(r){ return !isFinite(r)?'신규':((r>=0?'+':'')+Math.round(r)+'%'); }
+// 채널/제품 공통 '분석' 카드: 자동 요약 문장 + 증감 상세 표
+function analysisCard(app, unitName, delta, tkey){
+  var cr=cmpRange();
+  var byCur=delta.slice().sort(function(a,b){return b.cur-a.cur;});
+  var totCur=byCur.reduce(function(s,x){return s+x.cur;},0)||1;
+  var c=el('div',{class:'card'});
+  c.appendChild(el('h3',null, unitName+'별 분석 <span class="h-sub">'+(cr?('비교: '+cr.label+' ('+cr.start+' ~ '+cr.end+')'):'상단 비교 기간 미선택')+'</span>'));
+  var box=el('div',{class:'insight'}); var L=[];
+  var top3=byCur.slice(0,3).filter(function(x){return x.cur>0;});
+  if(top3.length) L.push('상위 '+top3.length+'개 '+unitName+'이 전체의 <b>'+(top3.reduce(function(s,x){return s+x.cur;},0)/totCur*100).toFixed(0)+'%</b> ('+top3.map(function(x){return x.key+' '+won(x.cur);}).join(', ')+')');
+  if(cr){
+    var curT=delta.reduce(function(s,x){return s+x.cur;},0), prevT=delta.reduce(function(s,x){return s+x.prev;},0);
+    if(prevT) L.push('전체 '+(curT>=prevT?'▲ +':'▼ ')+wonFull(curT-prevT)+' (<b>'+(curT>=prevT?'+':'')+((curT-prevT)/prevT*100).toFixed(1)+'%</b>) · '+cr.label+' 대비');
+    var grow=delta.filter(function(x){return isFinite(x.rate)&&x.diff>0;}).sort(function(a,b){return b.diff-a.diff;});
+    var drop=delta.filter(function(x){return x.diff<0;}).sort(function(a,b){return a.diff-b.diff;});
+    var neu=delta.filter(function(x){return x.prev===0&&x.cur>0;}).sort(function(a,b){return b.cur-a.cur;});
+    if(grow[0]) L.push('최대 성장 <b>'+grow[0].key+'</b> +'+wonFull(grow[0].diff)+' ('+pctTxt(grow[0].rate)+')'+(grow[1]?(', '+grow[1].key+' +'+won(grow[1].diff)):''));
+    if(drop[0]) L.push('최대 감소 <b>'+drop[0].key+'</b> '+wonFull(drop[0].diff)+' ('+pctTxt(drop[0].rate)+')'+(drop[1]?(', '+drop[1].key+' '+won(drop[1].diff)):''));
+    if(neu.length) L.push('신규 유입 '+neu.slice(0,3).map(function(x){return x.key+' '+won(x.cur);}).join(', ')+(neu.length>3?(' 외 '+(neu.length-3)+'개'):''));
+  } else {
+    L.push('<span class="muted">상단 <b>비교</b>에서 “직전 기간” 또는 “전년 동기”를 선택하면 증감·성장/감소 분석이 표시됩니다.</span>');
+  }
+  L.forEach(function(t){ box.appendChild(el('div',{class:'insight-li'}, '• '+t)); });
+  c.appendChild(box);
+  if(cr){
+    var rows=delta.slice().sort(function(a,b){return b.diff-a.diff;}).map(function(x){return [x.key,x.cur,x.prev,x.diff,x.rate,x.share];});
+    c.appendChild(tableOf([unitName,'현재','비교기간','증감액','증감률','기여도'], rows,
+      [null,'won','won','won','pct','share'], tkey, '증감액'));
+  }
+  app.appendChild(c);
+}
+
 /* ============================ 렌더 ============================ */
 function render(){
   document.querySelectorAll('#viewSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.v===STATE.view);});
@@ -596,17 +645,22 @@ function renderChannel(app){
   c1.appendChild(el('h3',null,'채널별 매출 추이 <span class="h-sub">선택 채널 중 상위 6개</span>'));
   c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
 
+  var chDelta=deltaRows(STATE.daily.filter(notExcl), function(r){return chDisp(r.ch);}, chFilter);
+  var chRate=rateMapOf(chDelta), cr=cmpRange();
   var chNames=arr.map(function(x){return x.key;});
   var chPick=(STATE.chPick&&chNames.indexOf(STATE.chPick)>=0)?STATE.chPick:(chNames[0]||null);
   var c2=el('div',{class:'card'});
-  c2.appendChild(el('h3',null,'채널별 매출 <span class="h-sub">'+arr.length+'개 채널 · 헤더 클릭 정렬 · <b>채널 클릭 시 아래에 제품 상세</b></span>'));
-  c2.appendChild(tableOf(['채널','매출','비중','건수','수량','건단가'],
-    arr.map(function(x){return [x.key,x[m],x[m]/total,x.cnt,x.qty,x.cnt?x[m]/x.cnt:0];}),
-    [null,'won','share','num','num','won'], 'ch_main','매출',false,{
+  c2.appendChild(el('h3',null,'채널별 매출 <span class="h-sub">'+arr.length+'개 채널 · 헤더 클릭 정렬 · <b>채널 클릭 시 아래에 제품 상세</b>'+(cr?' · 증감='+cr.label+'比':'')+'</span>'));
+  var chH=['채널','매출','비중','건수','수량','건단가'], chT=[null,'won','share','num','num','won'];
+  if(cr){ chH.splice(2,0,'증감률'); chT.splice(2,0,'pct'); }
+  c2.appendChild(tableOf(chH,
+    arr.map(function(x){ var b=[x.key,x[m],x[m]/total,x.cnt,x.qty,x.cnt?x[m]/x.cnt:0]; if(cr)b.splice(2,0,chRate[x.key]); return b; }),
+    chT, 'ch_main','매출',false,{
       onRowClick:function(r){ STATE.chPick=r[0]; render(); },
       isActive:function(r){ return r[0]===chPick; }
     }));
   app.appendChild(c2);
+  analysisCard(app,'채널',chDelta,'ch_delta');
 
   // 클릭한 채널의 제품 판매 내역 (채널×제품 교차, agg_chprod)
   if(STATE.chprod.length && chPick){
@@ -713,15 +767,20 @@ function renderProduct(app){
   var c1=el('div',{class:'card'});
   c1.appendChild(el('h3',null,'제품별 매출 추이 <span class="h-sub">'+(pdOn?(STATE.gran==='day'?'일별':'월별')+' (기간 따라 자동, 상단 일/월 버튼)':'월별')+' · 상위 8개</span>'));
   c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
+  var prodDelta = pdOn ? deltaRows(STATE.proddaily, function(r){return r.prod;}) : [];
+  var prodRate = rateMapOf(prodDelta), crP = pdOn ? cmpRange() : null;
   var c2=el('div',{class:'card'});
-  c2.appendChild(el('h3',null,'제품별 매출 순위 <span class="h-sub">헤더 클릭 정렬 · <b>제품 클릭 시 아래에 상세(추이·채널·옵션)</b></span>'));
-  c2.appendChild(tableOf(['제품','카테고리','매출','비중','건수','수량'],
-    arr.map(function(x){return [x.key,catOf[x.key]||'',x[m],x[m]/total,x.cnt,x.qty];}),
-    [null,null,'won','share','num','num'], 'prod_main','매출',false,{
+  c2.appendChild(el('h3',null,'제품별 매출 순위 <span class="h-sub">헤더 클릭 정렬 · <b>제품 클릭 시 아래에 상세(추이·채널·옵션)</b>'+(crP?' · 증감='+crP.label+'比':'')+'</span>'));
+  var pH=['제품','카테고리','매출','비중','건수','수량'], pT=[null,null,'won','share','num','num'];
+  if(crP){ pH.splice(3,0,'증감률'); pT.splice(3,0,'pct'); }
+  c2.appendChild(tableOf(pH,
+    arr.map(function(x){ var b=[x.key,catOf[x.key]||'',x[m],x[m]/total,x.cnt,x.qty]; if(crP)b.splice(3,0,prodRate[x.key]); return b; }),
+    pT, 'prod_main','매출',false,{
       onRowClick:function(r){ STATE.pDetail=r[0]; render(); },
       isActive:function(r){ return r[0]===pPick; }
     }));
   app.appendChild(c2);
+  if(pdOn) analysisCard(app,'제품',prodDelta,'prod_delta');
 
   // ===== 제품 상세: 클릭한 제품의 일별 추이 + 채널별 + 옵션별 매출 =====
   if(pPick){
