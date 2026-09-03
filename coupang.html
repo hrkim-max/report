@@ -32,6 +32,8 @@
   h1{font-size:22px;margin:0;letter-spacing:-.02em}
   .sub{color:var(--muted);font-size:13px;margin-top:4px}
   .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .toolbar select{font:inherit;padding:8px 11px;border:1px solid var(--border);border-radius:9px;
+    background:var(--panel);color:var(--text);max-width:220px}
   button{font:inherit;cursor:pointer;border:1px solid var(--border);background:var(--panel);
     color:var(--text);padding:8px 14px;border-radius:9px;transition:.15s}
   button:hover{border-color:var(--net)}
@@ -99,14 +101,6 @@
   .rangebar .rb-info{margin-left:auto;font-size:12px;color:var(--muted)}
   @media(max-width:640px){.rangebar .rb-info{margin-left:0;width:100%}}
   /* 필터 바 */
-  .filterbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 18px;font-size:13px;color:var(--muted)}
-  .filterbar:empty{display:none}
-  .filterbar select{font:inherit;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);max-width:260px}
-  .filterbar .fb-label{font-weight:700;color:var(--text)}
-  .filterbar .seg{padding:2px}
-  .filterbar .seg button{padding:5px 12px;font-size:12.5px}
-  .filterbar .fb-note{margin-left:auto;font-size:12px}
-  @media(max-width:720px){.filterbar .fb-note{margin-left:0;width:100%}}
   /* 상품별 표 */
   .prodbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px;font-size:13px}
   .prodbar button{padding:6px 12px;font-size:12.5px}
@@ -158,12 +152,12 @@
   <header class="top">
     <div>
       <h1 id="h1">쿠팡 광고 리포트</h1>
-      <div class="sub" id="subtitle">구글 시트 · 로켓광고 / 윙광고 · 광고 데이터 기준</div>
+      <div class="sub" id="subtitle">구글 시트 · 로켓광고 / 윙광고 · 매마 매출 기준 광고비 비중</div>
     </div>
     <div class="toolbar">
       <div class="seg" id="chSeg"></div>
+      <select id="campSel" title="시트 J열 '캠페인명' 기준"></select>
       <div class="seg" id="periodSeg">
-        <button data-p="day">일별</button>
         <button data-p="week" class="on">주간</button>
         <button data-p="month">월별</button>
         <button data-p="report">월간보고</button>
@@ -173,7 +167,6 @@
   </header>
 
   <div class="rangebar" id="rangeBar"></div>
-  <div class="filterbar" id="filterBar"></div>
 
   <div id="content">
     <div class="loading"><span class="spin"></span>데이터를 불러오는 중…</div>
@@ -208,8 +201,8 @@ const CONFIG = {
   // 전환 어트리뷰션 기본 기준 ("14" = 총 전환매출액(14일), "1" = 1일)
   ATTR_DEFAULT: "14",
 
-  CHART_MAX: { day:30, week:12, month:12 },   // 추이 차트 표시 구간 수
-  DETAIL_MAX:{ day:14, week:8,  month:12 },   // 상세 표 기본 표시 행 수
+  CHART_MAX: { week:8,  month:8  },   // 추이 차트 표시 구간 수 (29CM와 동일)
+  DETAIL_MAX:{ week:8,  month:8  },   // 상세 표 기본 표시 행 수
   DEFAULT_RANGE_DAYS: 30,                     // 최초 진입 시 기간 기본값 (최근 N일)
 
   // 브랜드 자동 인식 키워드 (광고집행 상품명 앞부분으로 판별)
@@ -531,7 +524,7 @@ let DATA_MIN=null, DATA_MAX=null;
 let STATE = {
   ch:"all", brand:"all", camp:"all", attr:CONFIG.ATTR_DEFAULT, correct:true,
   mode:"week", startDate:null, endDate:null, rangeInit:false, rangeNote:"",
-  loadedAt:null, detailAll:false, breakdown:"camp",
+  loadedAt:null, detailAll:false,
   prodSort:"cost", prodDir:-1, prodSel:null, prodOnlySel:false, prodSearch:"", prodTrendMetric:"rev",
   alertBasis:"range"
 };
@@ -738,7 +731,6 @@ function setRangeBar(){
      <button data-preset="30">최근 30일</button>
      <button data-preset="90">최근 90일</button>
      <button data-preset="month">이번 달</button>
-     <button data-preset="prevmonth">지난 달</button>
      <span class="rb-info">${rangeActive()?`선택 ${s} ~ ${e} · ${days}일`:`전체 ${min} ~ ${max} · ${daysBetween(min,max)+1}일`}${STATE.rangeNote?` <span class="bdg lo">${STATE.rangeNote}</span>`:""}</span>`;
   $("#rbStart").addEventListener("change",ev=>{ STATE.rangeNote=""; STATE.startDate=ev.target.value||null; refresh(); });
   $("#rbEnd").addEventListener("change",ev=>{ STATE.rangeNote=""; STATE.endDate=ev.target.value||null; refresh(); });
@@ -750,67 +742,30 @@ function setRangeBar(){
       if(t>max){ d=max; STATE.rangeNote=`오늘(${t}) 데이터 없음 → 최신일 ${max}`; }
       else if(t<min){ d=min; STATE.rangeNote="데이터 시작일"; }
       STATE.startDate=d; STATE.endDate=d;
-      // 하루만 볼 때는 주간 라벨이 오해를 부르므로 일별 뷰로 전환
-      if(STATE.mode==="week"||STATE.mode==="month"){
-        STATE.mode="day";
-        [...$("#periodSeg").children].forEach(x=>x.classList.toggle("on",x.dataset.p==="day"));
-      }
     }
     else if(p==="month"){ STATE.startDate=max.slice(0,7)+"-01"; STATE.endDate=max; }
-    else if(p==="prevmonth"){
-      const first=new Date(max.slice(0,7)+"-01T00:00:00"); first.setMonth(first.getMonth()-1);
-      const ym=`${first.getFullYear()}-${pad(first.getMonth()+1)}`;
-      const last=new Date(first.getFullYear(), first.getMonth()+1, 0);
-      STATE.startDate=`${ym}-01`; STATE.endDate=`${ym}-${pad(last.getDate())}`;
-      if(STATE.startDate<min) STATE.startDate=min;
-    }
     else { const d=parseInt(p); let st=dateShift(max,-(d-1)); if(st<min)st=min; STATE.startDate=st; STATE.endDate=max; }
     refresh();
   }));
 }
 
-function setFilterBar(){
-  const bar=$("#filterBar"); if(!bar) return;
-  if(!DATA_MIN){ bar.innerHTML=""; return; }
-  // 선택 가능한 캠페인 목록 (현재 채널·기간 기준으로 동적 산출)
-  const forCamp=filterRows({camp:"all"});
-  const camps=[...new Set(forCamp.map(r=>r.camp))].sort();
+/* 캠페인 선택 (툴바) — 시트 J열 '캠페인명' 기준, 현재 채널·기간에 있는 캠페인만 */
+function setCampSel(){
+  const sel=$("#campSel"); if(!sel) return;
+  if(!DATA_MIN){ sel.innerHTML=""; return; }
+  const camps=[...new Set(filterRows({camp:"all"}).map(r=>r.camp))].sort();
   if(STATE.camp!=="all" && !camps.includes(STATE.camp)) STATE.camp="all";
-  const a14=STATE.attr==="14";
-  bar.innerHTML=
-    `<span class="fb-label">🔎 필터</span>
-     <select id="fbChannel"><option value="all">판매 채널 전체 (로켓+윙)</option>${
-       CONFIG.CHANNELS.map(c=>`<option value="${c.id}"${STATE.ch===c.id?" selected":""}>${c.name}</option>`).join("")}</select>
-     <select id="fbCamp"><option value="all">캠페인 전체 (${camps.length})</option>${
-       camps.map(c=>`<option value="${escapeHtml(c)}"${STATE.camp===c?" selected":""}>${escapeHtml(c)}</option>`).join("")}</select>
-     <span class="fb-label" style="margin-left:6px">전환 기준</span>
-     <div class="seg" id="fbAttr">
-       <button data-a="14"${a14?' class="on"':''}>14일</button>
-       <button data-a="1"${!a14?' class="on"':''}>1일</button>
-     </div>
-     ${(MONTHLY&&MONTHLY.months.length)?`
-     <span class="fb-label" style="margin-left:6px" title="'월간보고' 탭의 어드민 확정치를 정답으로 보고 일별 데이터를 맞춥니다">월 확정치 보정</span>
-     <div class="seg" id="fbCorrect">
-       <button data-v="1"${STATE.correct?' class="on"':''}>적용</button>
-       <button data-v="0"${!STATE.correct?' class="on"':''}>원본</button>
-     </div>`:""}
-     <span class="fb-note">전환매출·주문수·판매수는 <b>클릭 후 ${ATTRIB()}일</b> 내 발생분 기준입니다.${
-       correcting()?`<br><span class="bdg conf">보정</span> ${MONTHLY.months.join(", ")} 은 <b>월간보고 확정치</b>에 맞춰 집계됩니다.`:""}</span>`;
-  $("#fbChannel").addEventListener("change",e=>{
-    setChannel(e.target.value);
-  });
-  $("#fbCamp").addEventListener("change",e=>{ STATE.camp=e.target.value; STATE.prodSel=null; refresh(); });
-  $("#fbAttr").addEventListener("click",e=>{
-    const b=e.target.closest("button"); if(!b) return;
-    STATE.attr=b.dataset.a; refresh();
-  });
-  $("#fbCorrect")?.addEventListener("click",e=>{
-    const b=e.target.closest("button"); if(!b) return;
-    STATE.correct = b.dataset.v==="1"; refresh();
-  });
+  sel.innerHTML=`<option value="all">캠페인 전체 (${camps.length})</option>`+
+    camps.map(c=>`<option value="${escapeHtml(c)}"${STATE.camp===c?" selected":""}>${escapeHtml(c)}</option>`).join("");
+  sel.onchange=e=>{ STATE.camp=e.target.value; STATE.prodSel=null; refresh(); };
 }
 
-/* 판매 채널 전환 — 상단 세그먼트와 필터바 select 어디서 바꿔도 같은 경로를 탑니다 */
+// 29CM 리포트와 동일하게 선택 대상이 제목에 반영됩니다
+function updateTitle(){
+  const t = STATE.ch==="all" ? "쿠팡 광고 리포트" : `쿠팡 ${chName(STATE.ch)} 리포트`;
+  document.title=t; $("#h1").textContent=t;
+}
+/* 판매 채널 전환 */
 function setChannel(id){
   STATE.ch=id;
   STATE.camp="all";                                   // 캠페인은 채널 종속이라 초기화
@@ -820,8 +775,8 @@ function setChannel(id){
 }
 function refresh(){
   if(STATE.mode==="report"){ showReport(); return; }
-  $("#chSeg").style.display=""; $("#rangeBar").style.display=""; $("#filterBar").style.display="";
-  setRangeBar(); setFilterBar(); render();
+  $("#chSeg").style.display=""; $("#campSel").style.display=""; $("#rangeBar").style.display="";
+  updateTitle(); setRangeBar(); setCampSel(); render();
 }
 
 /* ---- 선택 기간의 매마 매출 ----
@@ -979,51 +934,36 @@ function render(){
       <br>· 매마 매출 ${mm.noData?"금액과 ":""}<b>광고비 비중·광고 의존도</b>는 표시되지 않습니다.
       광고비는 전 기간인데 매마는 일부만 잡혀 비율이 왜곡되기 때문입니다.
       <br>· 시트에 해당 기간 매마 매출을 입력하고 <b>↻ 새로고침</b> 하면 자동으로 반영됩니다.
-      ${MAEMA.max?`(입력된 구간을 보려면 기간을 <b>${MAEMA.max}</b> 이전으로 맞추거나 <b>지난 달</b> 프리셋을 눌러보세요.)`:""}
+      ${MAEMA.max?`(입력된 구간을 보려면 기간을 <b>${MAEMA.max}</b> 이전으로 맞춰보세요.)`:""}
     </div>`;
   }
-  const cards=[];
-  if(mm){
-    cards.push({lab:`<span class="dot" style="background:var(--good)"></span>매마 매출 <span class="muted" style="font-size:11px">(자사 인식)</span> ${maemaBasisNote(mm)}`,
-                val: mm.maema!=null?won(mm.maema):"—"});
-    cards.push({lab:`광고비 비중 <span class="muted" style="font-size:11px">(광고비/매마 매출)</span>${
-                  canUseConfirmed()?"":` <span class="bdg lo" title="매마 매출·광고비 모두 채널 전체 값입니다(브랜드·캠페인 필터 미적용)">채널 전체</span>`}${
-                  (mm.mismatch||mm.noData)?` <span class="bdg hi" title="'매마 일별 매출액' 탭의 입력이 선택 기간(${mm.s} ~ ${mm.e})을 덮지 못합니다(최종 입력 ${hasMaema()?MAEMA.max:"-"}). 광고비는 전 기간, 매마는 일부만 잡혀 비율이 왜곡되므로 표시하지 않습니다. 해당 기간 매마 매출을 시트에 입력하면 자동으로 계산됩니다.">기간 불일치</span>`:""}`,
-                val: mm.adShare==null?"—":pct(mm.adShare,1)});
-  }
-  cards.push(...[
+
+  // 29CM 리포트와 동일하게 KPI 8장
+  const shareBadge = (mm && (mm.mismatch||mm.noData))
+    ? ` <span class="bdg hi" title="'매마 일별 매출액' 탭 입력이 선택 기간(${mm.s} ~ ${mm.e})을 덮지 못합니다(최종 입력 ${hasMaema()?MAEMA.max:"-"}). 비율이 왜곡되므로 표시하지 않습니다.">기간 불일치</span>` : "";
+  const chLevelBadge = canUseConfirmed() ? ""
+    : ` <span class="bdg lo" title="매마 매출은 채널 단위 값이라 캠페인 선택이 반영되지 않습니다">채널 전체</span>`;
+  const cards=[
     {lab:`<span class="dot" style="background:var(--cost)"></span>총 광고비 <span class="muted" style="font-size:11px">(${periodLbl}·${chLbl})</span>`, val:won(t.cost)},
-    {lab:`<span class="dot" style="background:var(--rev)"></span>광고전환매출 <span class="muted" style="font-size:11px">(${ATTRIB()}일)</span>`, val:won(t.rev)},
+    {lab:`<span class="dot" style="background:var(--rev)"></span>총 광고전환매출 <span class="muted" style="font-size:11px">(${ATTRIB()}일)</span>`, val:won(t.rev)},
+    {lab:`<span class="dot" style="background:var(--good)"></span>매마 매출 <span class="muted" style="font-size:11px">(자사 인식)</span> ${mm?maemaBasisNote(mm):""}`,
+     val:(mm&&mm.maema!=null)?won(mm.maema):"—"},
     {lab:`<span class="dot" style="background:var(--roas)"></span>ROAS <span class="muted" style="font-size:11px">(전환매출/광고비)</span>`, val:t.roas==null?"—":pct(t.roas)},
-    {lab:`노출수`, val:cnt(t.imp)},
-    {lab:`클릭수`, val:cnt(t.clk)},
-    {lab:`CTR <span class="muted" style="font-size:11px">(클릭/노출)</span>`, val:t.ctr==null?"—":pct(t.ctr,2)},
-    {lab:`CPC <span class="muted" style="font-size:11px">(광고비/클릭)</span>`, val:t.cpc==null?"—":won(t.cpc)},
+    {lab:`광고비 비중 <span class="muted" style="font-size:11px">(광고비/매마 매출)</span>${chLevelBadge}${shareBadge}`,
+     val:(mm&&mm.adShare!=null)?pct(mm.adShare,1):"—"},
+    {lab:`광고 의존도 <span class="muted" style="font-size:11px">(전환매출/매마 매출)</span>`,
+     val:(mm&&mm.adDep!=null)?pct(mm.adDep,1):"—"},
     {lab:`주문수 <span class="muted" style="font-size:11px">(전환수)</span>`, val:cnt(t.ord)},
     {lab:`전환율 <span class="muted" style="font-size:11px">(주문/클릭)</span>`, val:t.cvr==null?"—":pct(t.cvr,2)},
-    {lab:`CPA <span class="muted" style="font-size:11px">(광고비/주문)</span>`, val:t.cpa==null?"—":won(t.cpa)},
-    {lab:`객단가 <span class="muted" style="font-size:11px">(전환매출/주문)</span>`, val:t.aov==null?"—":won(t.aov)},
-    {lab:`판매수량`, val:cnt(t.qty)},
-  ]);
-  if(mm && mm.adDep!=null)
-    cards.push({lab:`광고 의존도 <span class="muted" style="font-size:11px">(광고전환매출/매마 매출)</span>`, val:pct(mm.adDep,1)});
+  ];
   html+=`<div class="cards">`+cards.map(x=>`<div class="card"><div class="lab">${x.lab}</div><div class="val">${x.val}</div></div>`).join("")+`</div>`;
-
-  /* --- 채널 비교 --- */
-  html+=`<div id="chPanel"></div>`;
-
-  /* --- 캠페인 비교 --- */
-  html+=`<div id="campPanel"></div>`;
-
-  /* --- 자사 매출 기준 (매마 매출) --- */
-  html+=`<div id="maemaPanel"></div>`;
 
   /* --- 상품 점검 --- */
   html+=`<div id="alertPanel"></div>`;
 
   /* --- 추이 차트 --- */
   const labels=recent.map(g=>g.label);
-  const unitTxt = STATE.mode==="day"?"일":STATE.mode==="week"?"주":"개월";
+  const unitTxt = STATE.mode==="week"?"주":"개월";
   html+=`<div class="panel">
     <h2>추이 <span class="muted" style="font-size:12px">· 최근 ${recent.length}${unitTxt} · ${chLbl}</span></h2>
     <div class="charts">
@@ -1042,24 +982,7 @@ function render(){
         <div class="chartbox" id="chartRoas"></div>
       </div>
     </div>
-    <div class="charts" style="margin-top:6px">
-      <div>
-        <div class="legend">
-          <span><span class="dot" style="background:var(--net)"></span>CPC <span class="muted">(광고비÷클릭)</span></span>
-        </div>
-        <div class="chartbox" id="chartCpc"></div>
-      </div>
-      <div>
-        <div class="legend">
-          <span><span class="dot" style="background:var(--good)"></span>CTR <span class="muted">(클릭÷노출)</span></span>
-        </div>
-        <div class="chartbox" id="chartCtr"></div>
-      </div>
-    </div>
   </div>`;
-
-  /* --- 구성 분석 (캠페인 / 노출지면 / 브랜드 / 광고그룹) --- */
-  html+=`<div id="bdPanel"></div>`;
 
   /* --- 상품별 --- */
   html+=`<div id="prodPanel"></div>`;
@@ -1076,20 +999,22 @@ function render(){
     ? `<button id="detailToggle" style="font-size:12.5px;padding:6px 12px">${STATE.detailAll?`최근 ${detailMax}${unitTxt}만 보기`:`전체 ${view.length}${unitTxt} 보기`}</button>` : "";
   html+=`<div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
-      <h2 style="margin:0">${STATE.mode==="day"?"일별":STATE.mode==="week"?"주간":"월별"} 상세
+      <h2 style="margin:0">${STATE.mode==="week"?"주간":"월별"} 상세
         <span class="muted" style="font-size:12px">· ${STATE.detailAll?`전체 ${view.length}${unitTxt}`:`최근 ${Math.min(detailMax,view.length)}${unitTxt}`}${rangeActive()?" · 기간 적용":""}</span></h2>
       ${moreBtn}
     </div>
-    <p class="hint">ROAS = <b>광고전환매출</b>÷광고비 · CTR = 클릭÷노출 · CPC = 광고비÷클릭 · 전환율 = 주문÷클릭 · CPA = 광고비÷주문${showMaema?` · <b>광고비 비중</b> = 광고비÷매마 매출`:""}<br>
-      <span class="muted">※ 광고전환매출은 쿠팡 광고 어드민의 전환매출(취소·반품 반영 전)이며, 자사 인식 매출(매마)과는 다릅니다.
+    <p class="hint">ROAS = <b>광고전환매출</b>÷광고비 · CTR = 클릭÷노출 · CPC = 광고비÷클릭${showMaema?` · 광고 의존도 = 광고전환매출÷매마 매출 · 광고비 비중 = 광고비÷매마 매출`:""}<br>
+      <span class="muted">※ 광고전환매출은 쿠팡 광고 어드민의 전환매출(취소·반품 반영 전)이며, 자사 인식 매출(매마)과는 다릅니다. 기간은 상단 달력에서 설정.
       ${showMaema?`<span class="bdg conf">✔확정</span> 달은 '월간보고' 탭의 어드민 확정치로 집계합니다.`:""}
-      ${(showShare && STATE.mode!=="month")?`<br>※ <b>매마 매출은 매입 발주 시점에 몰려 잡힙니다</b>(로켓은 발주일에만 금액 발생). 그래서 ${STATE.mode==="day"?"일":"주"} 단위 광고비 비중은 크게 출렁일 수 있으니, 추세는 <b>월별 뷰</b>로 함께 확인하세요.`:""}</span></p>
+      ${(showShare && STATE.mode!=="month")?`<br>※ <b>매마 매출은 매입 발주 시점에 몰려 잡힙니다</b>(로켓은 발주일에만 금액 발생). 주 단위 광고비 비중은 크게 출렁일 수 있으니 추세는 <b>월별</b>로 함께 확인하세요.`:""}</span></p>
     <div class="tblwrap"><table>
       <thead><tr>
-        <th>기간</th>${showMaema?`<th title="자사에서 매출로 인식하는 금액 ('매마 일별 매출액' 탭)">매마 매출</th>`:""}<th>광고비</th>
-        ${showShare?`<th title="광고비 ÷ 매마 매출">광고비 비중</th>`:""}<th>광고전환매출</th><th>ROAS</th>
-        <th>노출수</th><th>클릭수</th><th title="클릭수 ÷ 노출수">CTR</th><th title="광고비 ÷ 클릭수">CPC</th>
-        <th>주문수</th><th title="주문수 ÷ 클릭수">전환율</th><th title="광고비 ÷ 주문수">CPA</th><th>판매수량</th>
+        <th>기간</th><th>광고비</th><th>광고전환매출</th><th>ROAS</th>
+        <th title="클릭수 ÷ 노출수">CTR</th><th title="광고비 ÷ 클릭수">CPC</th>
+        ${showMaema?`<th title="자사에서 매출로 인식하는 금액 ('매마 일별 매출액' 탭)">매마 매출</th>`:""}
+        ${showMaema?`<th title="광고전환매출 ÷ 매마 매출">광고 의존도</th>`:""}
+        ${showShare?`<th title="광고비 ÷ 매마 매출">광고비 비중</th>`:""}
+        <th>주문수</th><th>판매수량</th>
       </tr></thead><tbody>`;
   for(const g of rowsShown){
     const lbl=g.label + (g.confirmed
@@ -1097,21 +1022,19 @@ function render(){
         : (g.corr ? ` <span class="bdg conf" title="월간보고 확정치에 맞춰 일별 데이터를 보정한 값">보정</span>`
         : (g.provisional ? ` <span class="bdg prov" title="전환 추적 중 — 전환매출·ROAS가 더 올라갈 수 있음">⚠잠정</span>`
         : (g.partialMonth ? ` <span class="bdg lo" title="선택 기간에 이 달의 일부만 포함됨">부분</span>` : ""))));
+    const adDep = (g.maema && g.maemaFull!==false) ? g.rev/g.maema*100 : null;
     html+=`<tr>
       <td>${lbl}</td>
-      ${showMaema?`<td class="num">${g.maema==null?'<span class="muted">—</span>'
-         :(won(g.maema)+(g.maemaFull===false?` <span class="bdg lo" title="매마 매출이 아직 마감되지 않은 달이 포함된 기간입니다(부분 합계)">부분</span>`:""))}</td>`:""}
       <td class="num">${won(g.cost)}</td>
-      ${showShare?`<td class="num">${g.adShare==null?'<span class="muted">—</span>':`<span class="${g.adShare<=25?'pos':'neg'}">${pct(g.adShare,1)}</span>`}</td>`:""}
       <td class="num">${won(g.rev)}</td>
       <td class="num">${g.roas==null?'<span class="muted">—</span>':`<span class="${g.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${pct(g.roas)}</span>`}</td>
-      <td class="num muted">${cnt(g.imp)}</td>
-      <td class="num muted">${cnt(g.clk)}</td>
       <td class="num muted">${g.ctr==null?'—':pct(g.ctr,2)}</td>
       <td class="num muted">${g.cpc==null?'—':won(g.cpc)}</td>
+      ${showMaema?`<td class="num muted">${g.maema==null?'—'
+         :(won(g.maema)+(g.maemaFull===false?` <span class="bdg lo" title="매마 매출이 아직 마감되지 않은 달이 포함된 기간입니다(부분 합계)">부분</span>`:""))}</td>`:""}
+      ${showMaema?`<td class="num">${adDep==null?'<span class="muted">—</span>':pct(adDep,1)}</td>`:""}
+      ${showShare?`<td class="num">${g.adShare==null?'<span class="muted">—</span>':`<span class="${g.adShare<=25?'pos':'neg'}">${pct(g.adShare,1)}</span>`}</td>`:""}
       <td class="num">${cnt(g.ord)}</td>
-      <td class="num muted">${g.cvr==null?'—':pct(g.cvr,2)}</td>
-      <td class="num muted">${g.cpa==null?'—':won(g.cpa)}</td>
       <td class="num muted">${cnt(g.qty)}</td>
     </tr>`;
   }
@@ -1119,19 +1042,22 @@ function render(){
     if(g.maema!=null) a.maema=(a.maema||0)+g.maema;
     // 합계 비율은 '매마가 마감된 기간'의 매마·광고비를 같은 범위로 더해 계산
     // (발주가 없어 매마 0원인 날도 광고비는 포함해야 기간 전체 비율이 맞습니다)
-    if(g.maemaFull){ a.maemaF=(a.maemaF||0)+(g.maema||0); a.mCost=(a.mCost||0)+g.cost; }
+    if(g.maemaFull){ a.maemaF=(a.maemaF||0)+(g.maema||0); a.mCost=(a.mCost||0)+g.cost; a.mRev=(a.mRev||0)+g.rev; }
     return a;},blank()));
   const sShare = (showShare && s.maemaF) ? s.mCost/s.maemaF*100 : null;   // 매마가 온전한 기간만으로 계산
+  const sDep   = (showMaema && s.maemaF) ? s.mRev/s.maemaF*100 : null;
   html+=`</tbody><tfoot><tr>
       <td>합계</td>
-      ${showMaema?`<td class="num">${s.maema==null?"—":won(s.maema)}</td>`:""}
       <td class="num">${won(s.cost)}</td>
+      <td class="num">${won(s.rev)}</td>
+      <td class="num">${s.roas==null?"—":pct(s.roas)}</td>
+      <td class="num">${s.ctr==null?"—":pct(s.ctr,2)}</td>
+      <td class="num">${s.cpc==null?"—":won(s.cpc)}</td>
+      ${showMaema?`<td class="num">${s.maema==null?"—":won(s.maema)}</td>`:""}
+      ${showMaema?`<td class="num">${sDep==null?"—":pct(sDep,1)}</td>`:""}
       ${showShare?`<td class="num">${sShare==null?"—":pct(sShare,1)}</td>`:""}
-      <td class="num">${won(s.rev)}</td><td class="num">${s.roas==null?"—":pct(s.roas)}</td>
-      <td class="num">${cnt(s.imp)}</td><td class="num">${cnt(s.clk)}</td>
-      <td class="num">${s.ctr==null?"—":pct(s.ctr,2)}</td><td class="num">${s.cpc==null?"—":won(s.cpc)}</td>
-      <td class="num">${cnt(s.ord)}</td><td class="num">${s.cvr==null?"—":pct(s.cvr,2)}</td>
-      <td class="num">${s.cpa==null?"—":won(s.cpa)}</td><td class="num">${cnt(s.qty)}</td>
+      <td class="num">${cnt(s.ord)}</td>
+      <td class="num">${cnt(s.qty)}</td>
     </tr></tfoot></table></div>
   </div>`;
 
@@ -1147,357 +1073,11 @@ function render(){
   lineChart($("#chartRoas"), labels, [
     {name:"ROAS", color:"var(--roas)", values:recent.map(g=>g.roas)},
   ], {fmt:v=>Math.round(v)+"%", unit:"%"});
-  lineChart($("#chartCpc"), labels, [
-    {name:"CPC", color:"var(--net)", values:recent.map(g=>g.cpc)},
-  ], {fmt:wonShort, labelFmt:v=>"₩"+Math.round(v).toLocaleString("ko-KR")});
-  lineChart($("#chartCtr"), labels, [
-    {name:"CTR", color:"var(--good)", values:recent.map(g=>g.ctr)},
-  ], {fmt:v=>v.toFixed(2)+"%", labelFmt:v=>v.toFixed(2)+"%"});
 
   $("#detailToggle")?.addEventListener("click",()=>{ STATE.detailAll=!STATE.detailAll; render(); });
-  renderChannelPanel();
-  renderCampaignPanel();
-  renderMaemaPanel();
   renderAlertPanel();
-  renderBreakdown();
   renderProductPanel();
   setFoot();
-}
-
-/* ============================================================
-   채널 비교 (로켓 vs 윙)
-   ============================================================ */
-function renderChannelPanel(){
-  const el=$("#chPanel"); if(!el) return;
-  // 채널·캠페인 필터는 무시하고 브랜드·기간만 적용해서 두 채널을 나란히 비교
-  const per=CONFIG.CHANNELS.map(c=>({ c, t: total(filterRows({ch:c.id, camp:"all"})) }));
-  const sum=per.reduce((a,x)=>a+x.t.cost,0);
-  const sumRev=per.reduce((a,x)=>a+x.t.rev,0);
-  const boxes=per.map(({c,t})=>{
-    const share = sum>0 ? t.cost/sum*100 : 0;
-    return `<div class="chbox">
-      <div class="t"><span class="dot" style="background:${c.color}"></span>${c.name}
-        <span class="muted" style="font-weight:400;font-size:11.5px" title="전체 광고비 중 이 채널이 차지하는 비율">· 광고비 점유율 ${pct(share,1)}</span></div>
-      <div class="kv"><span>광고비</span><b>${won(t.cost)}</b></div>
-      <div class="kv"><span>광고전환매출</span><b>${won(t.rev)}</b></div>
-      <div class="kv"><span>ROAS</span><b class="${t.roas!=null&&t.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${t.roas==null?"—":pct(t.roas)}</b></div>
-      <div class="kv"><span>노출 / 클릭</span><b>${cnt(t.imp)} / ${cnt(t.clk)}</b></div>
-      <div class="kv"><span>CTR / CPC</span><b>${t.ctr==null?"—":pct(t.ctr,2)} / ${t.cpc==null?"—":won(t.cpc)}</b></div>
-      <div class="kv"><span>주문수 / 전환율</span><b>${cnt(t.ord)} / ${t.cvr==null?"—":pct(t.cvr,2)}</b></div>
-      <div class="kv"><span>CPA / 객단가</span><b>${t.cpa==null?"—":won(t.cpa)} / ${t.aov==null?"—":won(t.aov)}</b></div>
-    </div>`;
-  }).join("");
-  const shareBar = sum>0 ? `<div class="share">${per.map(({c,t})=>`<i style="width:${(t.cost/sum*100).toFixed(2)}%;background:${c.color}" title="${c.name} 광고비 ${won(t.cost)}"></i>`).join("")}</div>
-    <div class="legend" style="margin-top:0">${per.map(({c,t})=>`<span><span class="dot" style="background:${c.color}"></span>${c.name} ${pct(sum>0?t.cost/sum*100:0,1)}</span>`).join("")}
-      <span class="muted">· 합계 광고비 ${won(sum)} · 합계 전환매출 ${won(sumRev)} · 합계 ROAS ${sum>0?pct(sumRev/sum*100):"—"}</span></div>` : "";
-
-  el.innerHTML=`<div class="panel">
-    <h2>채널 비교 <span class="muted" style="font-size:12px">· 로켓광고 vs 윙광고${rangeActive()?" · 기간 적용":""}</span></h2>
-    <p class="hint">판매 채널 선택과 무관하게 <b>두 채널을 항상 비교</b>합니다(기간 필터는 적용, 캠페인 필터는 미적용).</p>
-    ${shareBar}
-    <div class="chgrid">${boxes}</div>
-    <div class="charts">
-      <div>
-        <div class="legend">${CONFIG.CHANNELS.map(c=>`<span><span class="dot" style="background:${c.color}"></span>${c.name} 광고비</span>`).join("")}</div>
-        <div class="chartbox" id="chChartCost"></div>
-      </div>
-      <div>
-        <div class="legend">${CONFIG.CHANNELS.map(c=>`<span><span class="dot" style="background:${c.color}"></span>${c.name} ROAS</span>`).join("")}</div>
-        <div class="chartbox" id="chChartRoas"></div>
-      </div>
-    </div>
-  </div>`;
-
-  // 채널별 기간 추이
-  const chartMax=CONFIG.CHART_MAX[STATE.mode]||8;
-  const perCh=CONFIG.CHANNELS.map(c=>{
-    const g=groupPeriod(filterRows({ch:c.id, camp:"all"}), STATE.mode);
-    const m={}; g.forEach(x=>m[x.key]=x); return {c, m, g};
-  });
-  const keySet=new Set(); perCh.forEach(p=>p.g.forEach(x=>keySet.add(x.key)));
-  const keys=[...keySet].sort().slice(-chartMax);
-  const labels=keys.map(k=>{
-    const anyg=perCh.map(p=>p.m[k]).find(Boolean);
-    return anyg?anyg.label:k;
-  });
-  barChart($("#chChartCost"), labels, perCh.map(p=>({
-    name:p.c.name, color:p.c.color, values:keys.map(k=>p.m[k]?p.m[k].cost:0) })), {fmt:wonShort});
-  lineChart($("#chChartRoas"), labels, perCh.map(p=>({
-    name:p.c.name, color:p.c.color, values:keys.map(k=>p.m[k]?p.m[k].roas:null) })), {fmt:v=>Math.round(v)+"%", unit:"%"});
-}
-
-/* ============================================================
-   캠페인 비교 (시트 J열 '캠페인명' 기준)
-   ============================================================ */
-function campColor(name, i){ return LINE_COLORS[i % LINE_COLORS.length]; }
-function renderCampaignPanel(){
-  const el=$("#campPanel"); if(!el) return;
-  // 캠페인 필터는 무시하고(항상 전 캠페인 비교), 채널·기간 필터는 적용
-  const rows=filterRows({camp:"all"});
-  if(!rows.length){ el.innerHTML=""; return; }
-  const arr=groupSum(rows, r=>r.camp).sort((a,b)=>b.cost-a.cost);
-  if(!arr.length){ el.innerHTML=""; return; }
-  const sum=arr.reduce((a,g)=>a+g.cost,0);
-  const sumRev=arr.reduce((a,g)=>a+g.rev,0);
-  // 채널 표기(캠페인이 어느 채널 것인지)
-  const chOfCamp={}; for(const r of rows) (chOfCamp[r.camp] ||= new Set()).add(r.ch);
-
-  const boxes=arr.map((g,i)=>{
-    const share = sum>0 ? g.cost/sum*100 : 0;
-    const chs=[...(chOfCamp[g.key]||[])].map(chName).join("·");
-    const on = STATE.camp===g.key;
-    return `<div class="chbox" style="${on?"outline:2px solid var(--net);outline-offset:-1px":""}">
-      <div class="t"><span class="dot" style="background:${campColor(g.key,i)}"></span>${escapeHtml(g.key)}
-        <span class="muted" style="font-weight:400;font-size:11.5px" title="전체 광고비 중 이 캠페인이 차지하는 비율">· ${chs} · 광고비 점유율 ${pct(share,1)}</span></div>
-      <div class="kv"><span>광고비</span><b>${won(g.cost)}</b></div>
-      <div class="kv"><span>광고전환매출</span><b>${won(g.rev)}</b></div>
-      <div class="kv"><span>ROAS</span><b class="${g.roas!=null&&g.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${g.roas==null?"—":pct(g.roas)}</b></div>
-      <div class="kv"><span>노출 / 클릭</span><b>${cnt(g.imp)} / ${cnt(g.clk)}</b></div>
-      <div class="kv"><span>CTR / CPC</span><b>${g.ctr==null?"—":pct(g.ctr,2)} / ${g.cpc==null?"—":won(g.cpc)}</b></div>
-      <div class="kv"><span>주문수 / 전환율</span><b>${cnt(g.ord)} / ${g.cvr==null?"—":pct(g.cvr,2)}</b></div>
-      <div class="kv"><span>CPA / 객단가</span><b>${g.cpa==null?"—":won(g.cpa)} / ${g.aov==null?"—":won(g.aov)}</b></div>
-      <div style="margin-top:9px"><button class="campPick" data-c="${escapeHtml(g.key)}" style="width:100%;font-size:12px;padding:6px">
-        ${on?"✓ 선택됨 — 전체로":"이 캠페인만 보기"}</button></div>
-    </div>`;
-  }).join("");
-
-  const shareBar = sum>0 ? `<div class="share">${arr.map((g,i)=>`<i style="width:${(g.cost/sum*100).toFixed(2)}%;background:${campColor(g.key,i)}" title="${escapeHtml(g.key)} 광고비 ${won(g.cost)}"></i>`).join("")}</div>
-    <div class="legend" style="margin-top:0">${arr.map((g,i)=>`<span><span class="dot" style="background:${campColor(g.key,i)}"></span>${escapeHtml(g.key)} ${pct(sum>0?g.cost/sum*100:0,1)}</span>`).join("")}
-      <span class="muted">· 합계 광고비 ${won(sum)} · 합계 전환매출 ${won(sumRev)} · 합계 ROAS ${sum>0?pct(sumRev/sum*100):"—"}</span></div>` : "";
-
-  el.innerHTML=`<div class="panel">
-    <h2>캠페인 비교 <span class="muted" style="font-size:12px">· 시트 J열 '캠페인명' 기준 · ${arr.length}개${STATE.ch!=="all"?` · ${chName(STATE.ch)}`:""}${rangeActive()?" · 기간 적용":""}</span></h2>
-    <p class="hint">상단 캠페인 필터와 무관하게 <b>모든 캠페인을 비교</b>합니다(판매 채널·기간 필터는 적용). 카드의 버튼을 누르면 그 캠페인만 보도록 필터가 걸립니다.</p>
-    ${shareBar}
-    <div class="chgrid">${boxes}</div>
-    <div class="charts">
-      <div>
-        <div class="legend">${arr.map((g,i)=>`<span><span class="dot" style="background:${campColor(g.key,i)}"></span>${escapeHtml(g.key)}</span>`).join("")}</div>
-        <div class="chartbox" id="campChartCost"></div>
-      </div>
-      <div>
-        <div class="legend"><span class="muted">캠페인별 ROAS</span></div>
-        <div class="chartbox" id="campChartRoas"></div>
-      </div>
-    </div>
-  </div>`;
-
-  // 캠페인별 기간 추이
-  const chartMax=CONFIG.CHART_MAX[STATE.mode]||8;
-  const per=arr.map((g,i)=>{
-    const gp=groupPeriod(filterRows({camp:g.key}), STATE.mode);
-    const m={}; gp.forEach(x=>m[x.key]=x);
-    return {name:g.key, color:campColor(g.key,i), m, g:gp};
-  });
-  const keySet=new Set(); per.forEach(p=>p.g.forEach(x=>keySet.add(x.key)));
-  const keys=[...keySet].sort().slice(-chartMax);
-  const labels=keys.map(k=>{ const any=per.map(p=>p.m[k]).find(Boolean); return any?any.label:k; });
-  barChart($("#campChartCost"), labels, per.map(p=>({
-    name:p.name, color:p.color, values:keys.map(k=>p.m[k]?p.m[k].cost:0) })), {fmt:wonShort});
-  lineChart($("#campChartRoas"), labels, per.map(p=>({
-    name:p.name, color:p.color, values:keys.map(k=>p.m[k]?p.m[k].roas:null) })),
-    {fmt:v=>Math.round(v)+"%", unit:"%", labelMax:2});
-
-  el.querySelectorAll(".campPick").forEach(b=>b.addEventListener("click",()=>{
-    STATE.camp = (STATE.camp===b.dataset.c) ? "all" : b.dataset.c;
-    STATE.prodSel=null; refresh();
-  }));
-}
-
-/* ============================================================
-   자사 매출 기준 (매마 매출) — '월간보고' 탭 값
-   ============================================================ */
-function renderMaemaPanel(){
-  const el=$("#maemaPanel"); if(!el) return;
-  if(!MONTHLY || !MONTHLY.months.length){
-    el.innerHTML = (MONTHLY&&MONTHLY.failed)
-      ? `<div class="banner"><b>⚠️ '월간보고' 탭을 불러오지 못했습니다.</b> 매마 매출 기준 지표는 표시되지 않습니다. 시트 게시 범위가 <b>전체 문서</b>인지 확인해 주세요.</div>`
-      : "";
-    return;
-  }
-  // '월간보고' 월 ∪ '매마 일별' 월
-  const mset=new Set(MONTHLY.months);
-  if(hasMaema()) for(const k of Object.keys(MAEMA.byMonth)) mset.add(k.slice(0,k.indexOf("|")));
-  const months=[...mset].sort().reverse();
-  const rowsHtml=[];
-  // T.costM/revM = 매마 매출이 입력된 달만의 합 (비율 계산용 — 기간이 어긋나면 비율이 왜곡되므로 분리)
-  const T={maema:0,cost:0,rev:0,costM:0,revM:0,anyMaema:false,nM:0,n:0};
-  for(const ym of months){
-    const per=CONFIG.CHANNELS.map(c=>{
-      const src=confirmedMonth(c.id,ym);
-      const md=hasMaema() ? MAEMA.byMonth[`${ym}|${c.id}`] : null;
-      if(!src && md==null) return null;
-      const d=Object.assign({maema:null,cost:null,rev:null,imp:null,clk:null,qty:null,ord:null}, src||{});
-      // 매마 매출은 '매마 일별 매출액' 탭으로 통일 (일별 탭이 있으면 월간보고 매마 값은 쓰지 않음)
-      d.maema = hasMaema() ? md : (src?src.maema:null);
-      return {c,d};
-    }).filter(Boolean);
-    if(!per.length) continue;
-    const sum={maema:null,cost:null,rev:null,imp:null,clk:null,qty:null};
-    for(const {d} of per) for(const k of Object.keys(sum)) if(d[k]!=null) sum[k]=(sum[k]||0)+d[k];
-    const line=(label,d,isSum)=>{
-      const adShare = (d.maema && d.cost!=null) ? d.cost/d.maema*100 : null;   // 광고비 비중
-      const adDep   = (d.maema && d.rev!=null)  ? d.rev/d.maema*100  : null;   // 광고 의존도
-      const roas    = (d.cost) ? d.rev/d.cost*100 : null;
-      return `<tr${isSum?' style="font-weight:700;background:var(--panel2)"':''}>
-        <td>${isSum?ym:""}</td>
-        <td>${label}</td>
-        <td class="num">${d.maema==null?'<span class="muted">미입력</span>':won(d.maema)}</td>
-        <td class="num">${won(d.cost)}</td>
-        <td class="num">${adShare==null?'<span class="muted">—</span>':`<span class="${adShare<=25?'pos':'neg'}">${pct(adShare,1)}</span>`}</td>
-        <td class="num">${won(d.rev)}</td>
-        <td class="num">${adDep==null?'<span class="muted">—</span>':pct(adDep,1)}</td>
-        <td class="num">${roas==null?'<span class="muted">—</span>':pct(roas)}</td>
-        <td class="num muted">${cnt(d.imp)}</td>
-        <td class="num muted">${cnt(d.clk)}</td>
-        <td class="num muted">${cnt(d.qty)}</td>
-      </tr>`;
-    };
-    rowsHtml.push(line(`<b>합계</b>`, sum, true));
-    for(const {c,d} of per) rowsHtml.push(line(`<span class="dot" style="background:${c.color}"></span> ${c.name}`, d, false));
-    T.n++;
-    if(sum.cost!=null) T.cost+=sum.cost;
-    if(sum.rev!=null)  T.rev+=sum.rev;
-    if(sum.maema!=null){
-      T.maema+=sum.maema; T.anyMaema=true; T.nM++;
-      if(sum.cost!=null) T.costM+=sum.cost;
-      if(sum.rev!=null)  T.revM+=sum.rev;
-    }
-  }
-  const tShare = T.anyMaema&&T.maema>0 ? T.costM/T.maema*100 : null;
-  const tDep   = T.anyMaema&&T.maema>0 ? T.revM/T.maema*100 : null;
-  const partialNote = (T.nM>0 && T.nM<T.n)
-    ? ` <span class="bdg lo" title="매마 매출이 입력된 ${T.nM}개월만으로 계산 (광고비·전환매출 칸은 ${T.n}개월 전체 합계)">${T.nM}/${T.n}개월</span>` : "";
-  el.innerHTML=`<div class="panel">
-    <h2>자사 매출 기준 <span class="muted" style="font-size:12px">· 매마 매출 = 자사에서 매출로 인식하는 금액</span></h2>
-    <p class="hint"><b>광고비 비중</b> = 어드민 집행 광고비 ÷ 매마 매출 · <b>광고 의존도</b> = 어드민 광고 전환 매출 ÷ 매마 매출 · <b>ROAS</b> = 광고 전환 매출 ÷ 광고비<br>
-      <span class="muted">※ <b>매마 매출은 '매마 일별 매출액' 탭의 일별 합계</b>로 통일해 사용합니다(광고 지표는 '월간보고' 탭의 어드민 확정치).
-      이 표는 상단 기간·필터와 무관하게 입력된 월을 그대로 보여줍니다. 매마 매출이 비어 있는 달은 '미입력'으로 표시됩니다.
-      광고 전환 매출은 쿠팡 소비자 판매가 기준이라 매마 매출과 성격이 달라, 두 값을 나눈 <b>비율</b>로만 해석하세요.</span></p>
-    <div class="tblwrap"><table>
-      <thead><tr><th>년/월</th><th>채널</th><th>매마 매출</th><th>광고비</th>
-        <th title="광고비 ÷ 매마 매출">광고비 비중</th><th>광고 전환 매출</th>
-        <th title="광고 전환 매출 ÷ 매마 매출">광고 의존도</th><th>ROAS</th>
-        <th>노출수</th><th>클릭수</th><th>판매수</th></tr></thead>
-      <tbody>${rowsHtml.join("")}</tbody>
-      <tfoot><tr><td>전체</td><td>로켓+윙</td><!-- 합계 -->
-        <td class="num">${T.anyMaema?won(T.maema):"—"}</td>
-        <td class="num">${won(T.cost)}</td>
-        <td class="num">${tShare==null?"—":pct(tShare,1)+partialNote}</td>
-        <td class="num">${won(T.rev)}</td>
-        <td class="num">${tDep==null?"—":pct(tDep,1)+partialNote}</td>
-        <td class="num">${T.cost>0?pct(T.rev/T.cost*100):"—"}</td>
-        <td class="num"></td><td class="num"></td><td class="num"></td></tr></tfoot>
-    </table></div>
-    ${maemaCrossCheckHTML()}
-    ${factorSummaryHTML()}
-  </div>`;
-}
-
-/* '매마 일별 매출액' 탭 합계와 '월간보고' 탭 매마 값이 일치하는지 교차 검증 */
-function maemaCrossCheckHTML(){
-  if(!hasMaema() || !MONTHLY) return "";
-  const bad=[], ok=[];
-  for(const k of Object.keys(MONTHLY.byKey)){
-    const cf=MONTHLY.byKey[k]; if(cf.maema==null) continue;
-    const d=MAEMA.byMonth[k];
-    if(d==null) continue;
-    (Math.abs(d-cf.maema)<1 ? ok : bad).push({k, d, m:cf.maema});
-  }
-  if(!bad.length){
-    return ok.length ? `<p class="hint" style="margin:2px 0 12px"><span class="bdg conf">교차 검증</span>
-      '매마 일별 매출액' 탭 합계가 '월간보고' 탭의 매마 매출과 ${ok.length}건 모두 일치합니다.</p>` : "";
-  }
-  return `<div class="banner" style="margin:4px 0 12px"><b>⚠️ 매마 매출 불일치</b> — '매마 일별 매출액' 탭 합계와 '월간보고' 탭 값이 다릅니다. 어느 쪽이 맞는지 확인해 주세요.
-    <ul style="margin:6px 0 0;padding-left:20px">${bad.map(x=>{
-      const [ym,ch]=x.k.split("|");
-      return `<li>${ym} ${chName(ch)} — 일별합 <b>${won(x.d)}</b> vs 월간보고 <b>${won(x.m)}</b> (차이 ${won(x.d-x.m)})</li>`;
-    }).join("")}</ul>
-    <div class="muted" style="margin-top:6px">리포트의 매마 매출은 <b>'매마 일별 매출액' 탭</b>으로 통일해 사용합니다.</div></div>`;
-}
-
-/* 보정 계수 요약 — 일별 탭이 확정치 대비 얼마나 낮게 잡혀 있었는지 */
-function factorSummaryHTML(){
-  if(!FACTOR_INFO.length) return "";
-  const gap=(f)=> (f-1)*100;
-  const rows=FACTOR_INFO.map(x=>{
-    const gRev=gap(x.rev), gCost=gap(x.cost);
-    const cell=(g)=> Math.abs(g)<0.05 ? `<span class="muted">동일</span>`
-      : `<span class="${g>0?'pos':'neg'}">${g>0?"+":""}${g.toFixed(1)}%</span>`;
-    return `<tr>
-      <td>${x.ym}</td><td>${chName(x.ch)}</td>
-      <td class="num muted">${won(x.rawRev)}</td>
-      <td class="num">${won(x.cfRev)}</td>
-      <td class="num">${cell(gRev)}</td>
-      <td class="num muted">${won(x.rawCost)}</td>
-      <td class="num">${won(x.cfCost)}</td>
-      <td class="num">${cell(gCost)}</td>
-    </tr>`;}).join("");
-  return `<div style="margin:6px 0 14px">
-    <div style="font-size:13px;font-weight:600;margin-bottom:4px">🔧 월 확정치 보정 내역
-      <span class="muted" style="font-weight:400;font-size:12px">· ${STATE.correct?"현재 <b>적용 중</b>":"현재 <b>미적용</b>(원본 보기)"} · 상단 필터바에서 전환</span></div>
-    <p class="hint" style="margin-bottom:8px">일별 탭은 매일 받아쓰기 때문에 <b>14일 전환 추적이 덜 반영</b>됩니다.
-      아래 비율만큼 일별 값을 곱해서 월 합계가 확정치와 일치하도록 맞춥니다(일자·상품·캠페인 구성비는 유지).</p>
-    <div class="tblwrap"><table>
-      <thead><tr><th>년/월</th><th>채널</th><th>전환매출(일별합)</th><th>전환매출(확정)</th><th>보정</th>
-        <th>광고비(일별합)</th><th>광고비(확정)</th><th>보정</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
-  </div>`;
-}
-
-/* ============================================================
-   구성 분석 (캠페인 / 노출지면 / 브랜드 / 광고그룹)
-   ============================================================ */
-const BD_DEFS={
-  camp: {label:"캠페인",   key:r=>r.camp,  head:"캠페인명"},
-  area: {label:"노출지면", key:r=>r.area,  head:"광고 노출 지면"},
-  brand:{label:"브랜드",   key:r=>r.brand, head:"브랜드"},
-  grp:  {label:"광고그룹", key:r=>r.grp,   head:"광고그룹"},
-  ch:   {label:"채널",     key:r=>r.ch,    head:"채널"},
-};
-function renderBreakdown(){
-  const el=$("#bdPanel"); if(!el) return;
-  const rows=filterRows();
-  if(!rows.length){ el.innerHTML=""; return; }
-  const def=BD_DEFS[STATE.breakdown]||BD_DEFS.camp;
-  const arr=groupSum(rows, def.key).sort((a,b)=>b.cost-a.cost);
-  const totalCost=arr.reduce((a,g)=>a+g.cost,0);
-  const t=derive(arr.reduce((a,g)=>{a.cost+=g.cost;a.rev+=g.rev;a.ord+=g.ord;a.qty+=g.qty;a.imp+=g.imp;a.clk+=g.clk;return a;},blank()));
-  const seg=Object.keys(BD_DEFS).map(k=>
-    `<button data-k="${k}"${STATE.breakdown===k?' class="on"':''}>${BD_DEFS[k].label}</button>`).join("");
-  el.innerHTML=`<div class="panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
-      <h2 style="margin:0">구성 분석 <span class="muted" style="font-size:12px">· ${def.label}별 · ${arr.length}개</span></h2>
-      <div class="seg" id="bdSeg" style="font-size:12.5px">${seg}</div>
-    </div>
-    <p class="hint">현재 선택한 채널·브랜드·캠페인·기간 안에서 ${def.label}별로 나눠 봅니다. 광고비 순 정렬.</p>
-    <div class="tblwrap"><table>
-      <thead><tr><th>${def.head}</th><th>광고비</th><th>비중</th><th>광고전환매출</th><th>ROAS</th>
-        <th>노출수</th><th>클릭수</th><th>CTR</th><th>CPC</th><th>주문수</th><th>전환율</th></tr></thead>
-      <tbody>${arr.map(g=>`<tr>
-        <td>${escapeHtml(STATE.breakdown==="ch"?chName(g.key):g.key)}</td>
-        <td class="num">${won(g.cost)}</td>
-        <td class="num muted">${totalCost>0?pct(g.cost/totalCost*100,1):"—"}</td>
-        <td class="num">${won(g.rev)}</td>
-        <td class="num">${g.roas==null?'<span class="muted">—</span>':`<span class="${g.roas>=CONFIG.ALERT.targetRoas?'pos':'neg'}">${pct(g.roas)}</span>`}</td>
-        <td class="num muted">${cnt(g.imp)}</td>
-        <td class="num muted">${cnt(g.clk)}</td>
-        <td class="num muted">${g.ctr==null?'—':pct(g.ctr,2)}</td>
-        <td class="num muted">${g.cpc==null?'—':won(g.cpc)}</td>
-        <td class="num">${cnt(g.ord)}</td>
-        <td class="num muted">${g.cvr==null?'—':pct(g.cvr,2)}</td>
-      </tr>`).join("")}</tbody>
-      <tfoot><tr><td>합계</td><td class="num">${won(t.cost)}</td><td class="num">100.0%</td>
-        <td class="num">${won(t.rev)}</td><td class="num">${t.roas==null?"—":pct(t.roas)}</td>
-        <td class="num">${cnt(t.imp)}</td><td class="num">${cnt(t.clk)}</td>
-        <td class="num">${t.ctr==null?"—":pct(t.ctr,2)}</td><td class="num">${t.cpc==null?"—":won(t.cpc)}</td>
-        <td class="num">${cnt(t.ord)}</td><td class="num">${t.cvr==null?"—":pct(t.cvr,2)}</td></tr></tfoot>
-    </table></div>
-  </div>`;
-  $("#bdSeg").addEventListener("click",e=>{
-    const b=e.target.closest("button"); if(!b) return;
-    STATE.breakdown=b.dataset.k; renderBreakdown();
-  });
 }
 
 /* ============================================================
@@ -2024,8 +1604,9 @@ function renderReportDoc(months){
 }
 function showReport(){
   $("#chSeg").style.display="none";
+  $("#campSel").style.display="none";
   $("#rangeBar").style.display="none";
-  $("#filterBar").style.display="none";
+  document.title="쿠팡 광고 리포트 · 월간보고"; $("#h1").textContent="쿠팡 광고 리포트";
   const months=monthsAvailable();
   if(!months.length){ $("#content").innerHTML=`<div class="err">집계할 월 데이터가 없습니다.</div>`; return; }
   if(!STATE.reportYm || !months.includes(STATE.reportYm)){
