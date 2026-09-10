@@ -618,10 +618,16 @@ function render(){
     g.partialMonth = (STATE.mode==="month" && !g.confirmed && !rangeCoversMonth(g.key));
   }
 
-  const recent=groups.slice(-CONFIG.CHART_MAX);
-  const view=[...groups].reverse(); // 표: 최신 위로
+  // 캠페인 필터 시: 추이 차트·상세표는 그 캠페인 광고 + 브랜드(주간) 실판매액 기준
+  let vgroups=groups;
+  if(STATE.campFilter){
+    vgroups=groupBy(campaignDaily(STATE.campFilter), STATE.mode);
+    for(const g of vgroups){ g.confirmed=false; g.partialMonth=false; g.provisional = provStart && g.lastKey && g.lastKey>=provStart; }
+  }
+  const recent=vgroups.slice(-CONFIG.CHART_MAX);
+  const view=[...vgroups].reverse(); // 표: 최신 위로
 
-  // KPI (그룹 기준 → '월별 정리' 확정치가 반영됨)
+  // KPI (그룹 기준 → '월별 정리' 확정치가 반영됨; 캠페인 필터와 무관하게 브랜드 전체)
   let totalCostAll=0, totalAdRevAll=0, kGross=0,kNet=0,anyG=false,anyN=false, kCostSales=0;
   for(const g of groups){
     totalCostAll+=g.cost; totalAdRevAll+=g.adRev;
@@ -681,7 +687,7 @@ function render(){
   // 차트
   const labels=recent.map(g=>g.label);
   html+=`<div class="panel">
-    <h2>추이 <span class="muted" style="font-size:12px">· 최근 ${recent.length}개 ${STATE.mode==="week"?"주":"개월"}</span></h2>
+    <h2>추이 <span class="muted" style="font-size:12px">· 최근 ${recent.length}개 ${STATE.mode==="week"?"주":"개월"}</span>${STATE.campFilter?` <span class="bdg conf">캠페인 ‘${escapeHtml(STATE.campFilter)}’</span>`:""}</h2>
     <div class="charts">
       <div>
         <div class="legend">
@@ -714,11 +720,11 @@ function render(){
     ? `<button id="detailToggle" style="font-size:12.5px;padding:6px 12px">${STATE.detailAll?`최근 ${CONFIG.DETAIL_MAX}${unit}만 보기`:`전체 ${view.length}${unit} 보기`}</button>` : "";
   html+=`<div class="panel">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
-      <h2 style="margin:0">${STATE.mode==="week"?"주간":"월별"} 상세 <span class="muted" style="font-size:12px">· ${STATE.detailAll?`전체 ${view.length}${unit}`:`최근 ${Math.min(CONFIG.DETAIL_MAX,view.length)}${unit}`}${rangeActive()?" · 기간 적용":""}</span></h2>
+      <h2 style="margin:0">${STATE.mode==="week"?"주간":"월별"} 상세 <span class="muted" style="font-size:12px">· ${STATE.detailAll?`전체 ${view.length}${unit}`:`최근 ${Math.min(CONFIG.DETAIL_MAX,view.length)}${unit}`}${rangeActive()?" · 기간 적용":""}</span>${STATE.campFilter?` <span class="bdg conf">캠페인 ‘${escapeHtml(STATE.campFilter)}’ 필터</span> <button id="wkCampClear" style="font-size:11.5px;padding:3px 9px">전체 보기</button>`:""}</h2>
       ${moreBtn}
     </div>
     <p class="hint">명목 ROAS = <b>광고전환매출</b>÷광고비 · 반영율 = 실판매액÷판매액 · 보정 ROAS = 명목 ROAS × 반영율 · 광고비율 = 광고비÷실판매액<br>
-      <span class="muted">※ 광고전환매출은 할인 전 판매가 기준이라 높게 잡히므로, 실판매액/판매액 비율(반영율)로 보정합니다. 기간은 상단 달력에서 설정.</span></p>
+      <span class="muted">※ 광고전환매출은 할인 전 판매가 기준이라 높게 잡히므로, 실판매액/판매액 비율(반영율)로 보정합니다. 기간은 상단 달력에서 설정.</span>${STATE.campFilter?`<br><span class="bdg conf">캠페인 필터</span> 광고비·광고전환매출·명목ROAS·CTR·CPC는 <b>‘${escapeHtml(STATE.campFilter)}’ 캠페인</b> 기준. <b>판매액·실판매액·반영율은 브랜드 전체(주간)</b> 값이며, 보정 ROAS = 캠페인 명목 × 브랜드 주간 반영율입니다.`:""}</p>
     <div class="tblwrap"><table>
       <thead><tr>
         <th>기간</th><th>광고비</th><th>광고전환매출</th><th>명목 ROAS</th>
@@ -787,6 +793,7 @@ function render(){
   ], {fmt:v=>Math.round(v)+"%", unit:"%"});
 
   $("#detailToggle")?.addEventListener("click",()=>{ STATE.detailAll=!STATE.detailAll; render(); });
+  $("#wkCampClear")?.addEventListener("click",()=>{ STATE.campFilter=null; render(); });
   renderAlertPanel();
   renderCampaignPanel();
   renderProductPanel();
@@ -862,6 +869,33 @@ function resolveCamp(bid, name, dateKey){
 }
 // 한 광고 데이터 행의 캠페인: 광고열(실제 캠페인명) 우선 → 매핑탭(기간형) → (미지정)
 function campForRow(r){ return realCamp(r.camp) || resolveCamp(STATE.brandId, r.name, r.key) || "(미지정)"; }
+// 현재 기간의 브랜드 반영율(실판매액÷판매액, 0~1). 캠페인 보정 ROAS에 공통 적용.
+function currentKeepRate(){
+  let g=0,n=0,anyG=false,anyN=false;
+  for(const r of filteredDaily()){ if(r.gross!=null){g+=r.gross;anyG=true;} if(r.net!=null){n+=r.net;anyN=true;} }
+  return (anyG&&g>0&&anyN)? n/g : null;
+}
+// 선택 캠페인의 '일별' 데이터: 광고비/전환매출/노출/클릭/판매수는 캠페인 기준,
+// 판매액/실판매액은 브랜드 일별(캠페인엔 실판매액이 없으므로) → groupBy가 반영율·보정ROAS 계산
+function campaignDaily(camp){
+  const s=STATE.startDate,e=STATE.endDate;
+  const bmap={}; for(const r of STATE.daily) bmap[r.key]=r;
+  const g={};
+  for(const r of STATE.prodDaily){
+    if(s&&r.key<s)continue; if(e&&r.key>e)continue;
+    if(campForRow(r)!==camp) continue;
+    (g[r.key] ||= {cost:0,adRev:0,cnt:0,imp:0,clk:0});
+    const o=g[r.key]; o.cost+=r.cost;o.adRev+=r.adRev;o.cnt+=r.cnt;o.imp+=r.imp;o.clk+=r.clk;
+  }
+  const out=[];
+  for(const k of Object.keys(g)){
+    const o=g[k], b=bmap[k]||{};
+    out.push({date:new Date(k+"T00:00:00"), key:k, cost:o.cost,adRev:o.adRev,cnt:o.cnt,imp:o.imp,clk:o.clk,
+      gross:(b.gross==null?null:b.gross), net:(b.net==null?null:b.net), hasAd:true, hasSales:!!(b&&b.hasSales)});
+  }
+  out.sort((a,b)=>a.date-b.date);
+  return out;
+}
 function aggregateCampaigns(){
   if(!brandHasCampaigns(STATE.brandId)) return null;
   const s=STATE.startDate, e=STATE.endDate, map={};
@@ -872,8 +906,10 @@ function aggregateCampaigns(){
     const m=map[camp]; m.cost+=r.cost;m.adRev+=r.adRev;m.cnt+=r.cnt;m.imp+=r.imp;m.clk+=r.clk; m.pset.add(r.name);
   }
   const arr=Object.values(map);
+  const R=currentKeepRate();   // 브랜드 반영율(실/판매액) — 캠페인 보정에 공통 적용
   for(const m of arr){ m.prods=m.pset.size; delete m.pset;
-    m.roas=m.cost>0?m.adRev/m.cost*100:null; m.ctr=m.imp>0?m.clk/m.imp*100:null; m.cpc=m.clk>0?m.cost/m.clk:null; }
+    m.roas=m.cost>0?m.adRev/m.cost*100:null; m.ctr=m.imp>0?m.clk/m.imp*100:null; m.cpc=m.clk>0?m.cost/m.clk:null;
+    m.adjRev=(R!=null)?m.adRev*R:null; m.adjRoas=(R!=null&&m.roas!=null)?m.roas*R:null; }
   const key=STATE.campSort, dir=STATE.campDir;
   arr.sort((a,b)=>{
     if(key==="name") return dir*a.name.localeCompare(b.name);
@@ -883,7 +919,9 @@ function aggregateCampaigns(){
   return arr;
 }
 const CAMP_COLS=[{k:"name",label:"캠페인",cls:"pname"},{k:"prods",label:"상품수"},{k:"cost",label:"광고비"},
-  {k:"adRev",label:"광고전환매출"},{k:"roas",label:"명목 ROAS"},{k:"imp",label:"노출수"},{k:"clk",label:"클릭수"},
+  {k:"adRev",label:"광고전환매출"},{k:"adjRev",label:"보정 전환매출",title:"광고전환매출 × 브랜드 반영율"},
+  {k:"roas",label:"명목 ROAS"},{k:"adjRoas",label:"보정 ROAS",title:"명목 ROAS × 브랜드 반영율(실판매액÷판매액)"},
+  {k:"imp",label:"노출수"},{k:"clk",label:"클릭수"},
   {k:"ctr",label:"CTR",title:"클릭수 ÷ 노출수"},{k:"cpc",label:"CPC",title:"광고비 ÷ 클릭수"},{k:"cnt",label:"판매수"}];
 function renderCampaignPanel(){
   const el=$("#campPanel"); if(!el) return;
@@ -905,6 +943,8 @@ function renderCampaignPanel(){
     values:keys.map(k=> (cmap[nm]&&cmap[nm][k]!=null)?cmap[nm][k]:0)}));
   const tot=camps.reduce((a,c)=>{a.cost+=c.cost;a.adRev+=c.adRev;a.cnt+=c.cnt;a.imp+=c.imp;a.clk+=c.clk;return a;},{cost:0,adRev:0,cnt:0,imp:0,clk:0});
   const totRoas=tot.cost>0?tot.adRev/tot.cost*100:null, totCtr=tot.imp>0?tot.clk/tot.imp*100:null, totCpc=tot.clk>0?tot.cost/tot.clk:null;
+  const R=currentKeepRate();   // 브랜드 반영율(실/판매액)
+  const totAdjRev=(R!=null)?tot.adRev*R:null, totAdjRoas=(R!=null&&totRoas!=null)?totRoas*R:null;
   const noReal = !hasRealCampaign() && !mapHasCampaigns(STATE.brandId);   // 아직 실제 캠페인명이 없음
   const arrw=(k)=> k===STATE.campSort ? (STATE.campDir===1?" ▲":" ▼") : "";
   const th=CAMP_COLS.map(c=>`<th class="sortable ${c.cls||""}" data-k="${c.k}"${c.title?` title="${c.title}"`:""}>${c.label}${arrw(c.k)}</th>`).join("");
@@ -913,7 +953,9 @@ function renderCampaignPanel(){
     <td class="num muted">${c.prods}</td>
     <td class="num">${won(c.cost)}</td>
     <td class="num">${won(c.adRev)}</td>
+    <td class="num">${c.adjRev==null?'<span class="muted">—</span>':won(c.adjRev)}</td>
     <td class="num">${c.roas==null?'<span class="muted">—</span>':pct(c.roas)}</td>
+    <td class="num">${c.adjRoas==null?'<span class="muted">—</span>':`<span class="${c.adjRoas>=100?'pos':'neg'}">${pct(c.adjRoas)}</span>`}</td>
     <td class="num muted">${Math.round(c.imp).toLocaleString("ko-KR")}</td>
     <td class="num muted">${Math.round(c.clk).toLocaleString("ko-KR")}</td>
     <td class="num muted">${c.ctr==null?'—':pct(c.ctr,2)}</td>
@@ -923,7 +965,8 @@ function renderCampaignPanel(){
   const shownCamps = q ? camps.filter(c=>c.name.toLowerCase().includes(q)) : camps;
   el.innerHTML=`<div class="panel">
     <h2>🎯 캠페인별 광고 상세 <span class="muted" style="font-size:12px">· ${periodLbl} · ${camps.length}개 캠페인</span></h2>
-    <p class="hint">열 머리글 클릭 정렬 · <b>캠페인 행을 클릭하면 아래 '상품별 광고 상세'가 그 캠페인 상품만</b> 표시됩니다. 광고 데이터 탭 '캠페인' 열 기준 <b>일자 단위</b> 집계(시기별로 다른 캠페인이면 날짜별 분리). 최근 ${CONFIG.ATTRIB_DAYS}일은 잠정.
+    <p class="hint">열 머리글 클릭 정렬 · <b>캠페인 행 클릭 → 아래 '상품별 광고 상세'와 최하단 '${STATE.mode==="week"?"주간":"월별"} 상세'가 그 캠페인으로 필터</b>. 일자 단위 집계, 최근 ${CONFIG.ATTRIB_DAYS}일은 잠정.
+    <br>보정 전환매출·보정 ROAS = 각 값 × <b>브랜드 반영율 ${R==null?"(실판매액 없음 → —)":(R*100).toFixed(1)+"%"}</b>(실판매액÷판매액). 실판매액은 브랜드 단위라 모든 캠페인에 동일 반영율을 적용한 <b>추정치</b>입니다.
     ${noReal?`<br><span class="bdg prov">안내</span> 아직 실제 캠페인명이 없습니다. 광고 데이터 탭 <b>A열(캠페인)</b>에 캠페인명을 넣으면(‘-’ 대신) 그 캠페인으로 나뉩니다.`:""}</p>
     ${labels.length>=2 && !noReal?`<div class="legend">${series.map(x=>`<span><span class="dot" style="background:${x.color}"></span>${escapeHtml(x.name)}</span>`).join("")}</div><div class="chartbox" id="campTrend"></div>`:""}
     <div class="prodbar" style="margin-top:8px">
@@ -934,9 +977,10 @@ function renderCampaignPanel(){
     </div>
     <div class="tblwrap"><table class="prod">
       <thead><tr>${th}</tr></thead>
-      <tbody>${shownCamps.length?shownCamps.map(cell).join(""):`<tr><td colspan="10" class="muted" style="text-align:center;padding:16px">검색 결과가 없습니다</td></tr>`}</tbody>
+      <tbody>${shownCamps.length?shownCamps.map(cell).join(""):`<tr><td colspan="12" class="muted" style="text-align:center;padding:16px">검색 결과가 없습니다</td></tr>`}</tbody>
       <tfoot><tr><td class="pname">합계</td><td class="num">${camps.reduce((a,c)=>a+c.prods,0)}</td>
-        <td class="num">${won(tot.cost)}</td><td class="num">${won(tot.adRev)}</td><td class="num">${totRoas==null?"—":pct(totRoas)}</td>
+        <td class="num">${won(tot.cost)}</td><td class="num">${won(tot.adRev)}</td><td class="num">${totAdjRev==null?"—":won(totAdjRev)}</td>
+        <td class="num">${totRoas==null?"—":pct(totRoas)}</td><td class="num">${totAdjRoas==null?"—":pct(totAdjRoas)}</td>
         <td class="num">${Math.round(tot.imp).toLocaleString("ko-KR")}</td><td class="num">${Math.round(tot.clk).toLocaleString("ko-KR")}</td>
         <td class="num">${totCtr==null?"—":pct(totCtr,2)}</td><td class="num">${totCpc==null?"—":won(totCpc)}</td>
         <td class="num">${Math.round(tot.cnt).toLocaleString("ko-KR")}</td></tr></tfoot>
