@@ -396,10 +396,8 @@ function fChprod(){ return STATE.chprod.filter(function(r){return inRangeYm(r.ym
 // 채널×제품을 '선택 기간'에 맞춰 반환.
 // 1순위: 날짜×채널×제품 일 단위 집계(agg_chprod_daily)가 있으면 날짜로 정확히 필터.
 // 2순위(폴백): 월 단위 agg_chprod를 각 (채널,월)의 일별매출 비율로 안분(전월 포함 시 비율=1).
-function fChprodRanged(){
-  if(STATE.chpd && STATE.chpd.length){
-    return STATE.chpd.filter(function(r){return inRange(r.date);});
-  }
+// 월 단위 agg_chprod를 기간 일수 비율로 안분(항상 채널 총액과 일치). 일단위 탭 없거나 누락 채널의 대체용.
+function fChprodProrated(){
   var m=metric(), s=curStart(), e=curEnd(), sy=s.slice(0,7), ey=e.slice(0,7);
   var acc={}; // "채널|년월" -> {inr:기간내, full:월전체}
   STATE.daily.forEach(function(r){ if(!notExcl(r))return; var ym=r.date.slice(0,7); if(ym<sy||ym>ey)return;
@@ -409,6 +407,25 @@ function fChprodRanged(){
     var o=acc[chDisp(r.ch)+'|'+r.ym], f=(o&&o.full>0)?o.inr/o.full:0;
     return {ym:r.ym, ch:r.ch, cat:r.cat, prod:r.prod, qty:r.qty*f, cnt:r.cnt*f, sales:r.sales*f, pay:(r.pay||0)*f};
   }).filter(function(r){return r.sales||r.qty||r.cnt;});
+}
+// 일단위 chpd 합이 채널 총액(agg_daily)과 어긋나는 채널 집합(집계 파이프라인 누락 감지)
+function chpdBadChannels(){
+  var bad={};
+  if(!(STATE.chpd&&STATE.chpd.length)) return bad;
+  var m=metric(), auth={}, d={};
+  STATE.daily.forEach(function(r){ if(!notExcl(r)||!inRange(r.date))return; var c=chDisp(r.ch); auth[c]=(auth[c]||0)+r[m]; });
+  STATE.chpd.forEach(function(r){ if(!inRange(r.date))return; var c=chDisp(r.ch); d[c]=(d[c]||0)+r[m]; });
+  Object.keys(auth).forEach(function(c){ var a=auth[c],dd=d[c]||0; if(Math.abs(a-dd)>Math.max(1000,a*0.005)) bad[c]=true; });
+  return bad;
+}
+// 채널×제품 기간 데이터: 정상 채널은 일단위 chpd(정확), 누락 채널은 월단위 안분으로 대체 → 항상 채널 총액과 일치
+function fChprodRanged(){
+  var prorated=fChprodProrated();
+  if(!(STATE.chpd&&STATE.chpd.length)) return prorated;
+  var bad=chpdBadChannels();
+  var out=STATE.chpd.filter(function(r){ return inRange(r.date)&&!bad[chDisp(r.ch)]; });
+  prorated.forEach(function(r){ if(bad[chDisp(r.ch)]) out.push(r); });
+  return out;
 }
 // 월 단위 뷰 KPI (일 단위 KPI와 총액 불일치 방지)
 function kpiMonthly(app,rows,label){
@@ -638,6 +655,7 @@ function renderChannel(app){
 
   var chDelta=deltaRows(STATE.daily.filter(notExcl), function(r){return chDisp(r.ch);}, chFilter);
   var chRate=rateMapOf(chDelta), cr=cmpRange();
+  var chBad=chpdBadChannels();   // 일단위 채널×제품 데이터가 채널 총액과 어긋나는 채널(집계 누락)
   var chNames=arr.map(function(x){return x.key;});
   var chPick=(STATE.chPick&&chNames.indexOf(STATE.chPick)>=0)?STATE.chPick:(chNames[0]||null);
   var c2=el('div',{class:'card'});
@@ -662,9 +680,11 @@ function renderChannel(app){
     var ptot=parr.reduce(function(s,x){return s+x[m];},0)||1;
     var ctv=arr.filter(function(x){return x.key===chPick;})[0];
     var daily=crows.length&&crows[0].date;   // 일 단위 데이터(agg_chprod_daily) 사용 여부
-    var showD=!!(cr&&STATE.chpd&&STATE.chpd.length);   // 증감률 표기 가능(비교기간 + 일단위 데이터)
+    var bad=!!chBad[chPick];   // 이 채널은 일단위 데이터 누락 → 월단위 안분으로 보정됨
+    var showD=!!(cr&&STATE.chpd&&STATE.chpd.length&&!bad);   // 증감률 표기 가능(비교기간 + 정상 일단위 데이터)
     var c3=el('div',{class:'card'});
     c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">선택 기간 기준 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+(showD?' · 증감='+cr.label+'比':'')+' · <b>제품 클릭 시 추이</b></span>'));
+    if(bad) c3.appendChild(el('div',{class:'notice small',style:'margin:0 0 8px'},'⚠ 이 채널은 일단위 채널×제품 집계에 일부 날짜가 누락되어 <b>월단위 기준으로 보정</b>해 표시합니다(합계는 채널 총액과 일치). 정확한 일단위 표시는 집계 재실행 후 반영됩니다.'));
     if(!parr.length){ c3.appendChild(el('div',{class:'small muted'},'해당 채널의 제품 데이터가 없습니다.')); }
     else {
       var prodNames=parr.map(function(x){return x.key;});
