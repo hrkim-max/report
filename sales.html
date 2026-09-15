@@ -728,17 +728,33 @@ function renderChannel(app){
     var bad=!!chBad[chPick];   // 이 채널은 일단위 데이터 누락 → 월단위 안분으로 보정됨
     var showD=!!(cr&&STATE.chpd&&STATE.chpd.length&&!bad);   // 증감률 표기 가능(비교기간 + 정상 일단위 데이터)
     var c3=el('div',{class:'card'});
-    c3.appendChild(el('h3',null,chPick+' · 제품 판매 내역 <span class="h-sub">선택 기간 기준 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+(showD?' · 증감='+cr.label+'比':'')+' · <b>제품 클릭 시 추이</b></span>'));
+    c3.appendChild(el('h3',null,chPick+' · 제품별 순위 · 분석 <span class="h-sub">선택 기간 기준 · '+parr.length+'개 제품'+(ctv?' · 채널 매출 '+wonFull(ctv[m]):'')+(showD?' · 증감/증감액='+cr.label+'比':'')+' · <b>제품 클릭 시 추이</b></span>'));
     if(bad) c3.appendChild(el('div',{class:'notice small',style:'margin:0 0 8px'},'⚠ 이 채널은 일단위 채널×제품 집계에 일부 날짜가 누락되어 <b>월단위 기준으로 보정</b>해 표시합니다(합계는 채널 총액과 일치). 정확한 일단위 표시는 집계 재실행 후 반영됩니다.'));
     if(!parr.length){ c3.appendChild(el('div',{class:'small muted'},'해당 채널의 제품 데이터가 없습니다.')); }
     else {
       var prodNames=parr.map(function(x){return x.key;});
       var ppick=(STATE.chProdPick&&prodNames.indexOf(STATE.chProdPick)>=0)?STATE.chProdPick:null;
-      var cpRate=showD?rateMapOf(deltaRows(STATE.chpd.filter(function(r){return chDisp(r.ch)===chPick;}), function(r){return r.prod;})):{};
+      var pDelta=showD?deltaRows(STATE.chpd.filter(function(r){return chDisp(r.ch)===chPick;}), function(r){return r.prod;}):null;
+      // 요약 문장(제품 기준)
+      if(pDelta) c3.appendChild(insightBox('제품',pDelta));
+      else { var ib=el('div',{class:'insight'}); var t3=parr.slice(0,3).filter(function(x){return x[m]>0;});
+        if(t3.length) ib.appendChild(el('div',{class:'insight-li'},'• 상위 '+t3.length+'개 제품이 채널 매출의 <b>'+(t3.reduce(function(s,x){return s+x[m];},0)/ptot*100).toFixed(0)+'%</b> ('+t3.map(function(x){return x.key+' '+won(x[m]);}).join(', ')+')'));
+        ib.appendChild(el('div',{class:'insight-li'},'<span class="muted">'+(cr?(bad?'이 채널은 일단위 데이터 보정 중이라 제품별 증감 분석은 생략합니다.':''):'상단 비교 기간을 선택하면 제품별 증감 분석이 표시됩니다.')+'</span>'));
+        c3.appendChild(ib); }
+      // 상위 제품 추이
+      var byT=daily?function(r){return bucketOf(r.date);}:function(r){return r.ym;};
+      var tbm={}; crows.forEach(function(r){tbm[byT(r)]=1;}); var tbk=Object.keys(tbm).sort();
+      if(tbk.length>1){ var topP=parr.slice(0,5).map(function(x){return x.key;});
+        var tser=topP.map(function(pd,i){ var sm2=sumBy(crows.filter(function(r){return r.prod===pd;}),byT);
+          return {name:pd,color:COLORS[i%COLORS.length],data:tbk.map(function(b){return sm2[b]?sm2[b][m]:0;})}; });
+        c3.appendChild(el('div',{class:'small muted',style:'margin:4px 0 2px'},'상위 '+topP.length+'개 제품 추이 ('+(daily?(STATE.gran==='day'?'일별':'월별'):'월별')+')'));
+        c3.appendChild(lineChart(tbk,tser)); c3.appendChild(legendOf(topP)); }
+      // 순위 표(증감률+증감액)
+      var cpRate=showD?rateMapOf(pDelta):{}, cpDiff=showD?diffMapOf(pDelta):{};
       var ppH=['제품','카테고리','매출','비중','건수','수량'], ppT=[null,null,'won','share','num','num'];
-      if(showD){ ppH.splice(3,0,'증감률'); ppT.splice(3,0,'pct'); }
+      if(showD){ ppH.splice(3,0,'증감액'); ppT.splice(3,0,'won'); ppH.splice(3,0,'증감률'); ppT.splice(3,0,'pct'); }
       c3.appendChild(tableOf(ppH,
-        parr.map(function(x){ var b=[x.key,catOf[x.key]||'',x[m],x[m]/ptot,x.cnt,x.qty]; if(showD)b.splice(3,0,cpRate[x.key]); return b; }),
+        parr.map(function(x){ var b=[x.key,catOf[x.key]||'',x[m],x[m]/ptot,x.cnt,x.qty]; if(showD){ b.splice(3,0,cpDiff[x.key]); b.splice(3,0,cpRate[x.key]); } return b; }),
         ppT, 'ch_prod','매출',false,{
           onRowClick:function(r){ STATE.chProdPick=(STATE.chProdPick===r[0])?null:r[0]; render(); },
           isActive:function(r){ return r[0]===ppick; }
