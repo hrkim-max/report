@@ -129,6 +129,7 @@ svg{display:block;width:100%;height:auto}
       <button data-preset="today">오늘</button>
       <button data-preset="7d" class="on">최근 7일</button>
       <button data-preset="thismonth">이번달</button>
+      <button data-preset="lastmonth">지난달</button>
       <button data-preset="30">최근 30일</button>
       <button data-preset="60">최근 60일</button>
       <button data-preset="90">최근 90일</button>
@@ -698,6 +699,26 @@ function renderChannel(app){
   app.appendChild(c2);
   analysisCard(app,'채널',chDelta,'ch_delta');
 
+  // ===== 클릭한 채널 상세: 요약 KPI + 매출 추이 (agg_daily 기준 정확) =====
+  if(chPick){
+    var chRows=STATE.daily.filter(function(r){return notExcl(r)&&chDisp(r.ch)===chPick&&inRange(r.date);});
+    var ct=0,cc=0,cq=0; chRows.forEach(function(r){ct+=r[m];cc+=r.cnt;cq+=r.qty;});
+    var cmpV=null; if(cr){ cmpV=0; STATE.daily.forEach(function(r){ if(notExcl(r)&&chDisp(r.ch)===chPick&&r.date>=cr.start&&r.date<=cr.end)cmpV+=r[m]; }); }
+    var cD=el('div',{class:'card'});
+    cD.appendChild(el('h3',null,'📌 '+chPick+' · 채널 상세 <span class="h-sub">선택 기간 · 전체 비중 '+(total?(ct/total*100).toFixed(1):0)+'%'+(cr?' · '+cr.label+'比':'')+' · 표에서 다른 채널 클릭 시 전환</span>'));
+    var kb=el('div',{class:'kpis'});
+    kb.appendChild(kpi('채널 매출', wonFull(ct), (cr&&cmpV)?((ct-cmpV)/cmpV*100):null, cr?cr.label+'比':'', cr?wonFull(cmpV):null));
+    kb.appendChild(kpi('주문 건수', cc.toLocaleString()+'건', null,'',null));
+    kb.appendChild(kpi('판매 수량', cq.toLocaleString()+'개', null,'',null));
+    kb.appendChild(kpi('건단가', wonFull(cc?ct/cc:0), null,'',null));
+    cD.appendChild(kb);
+    var sm=sumBy(chRows,function(r){return bucketOf(r.date);}); var bk=Object.keys(sm).sort();
+    if(bk.length>1){ cD.appendChild(el('div',{class:'small muted',style:'margin:6px 0 2px'},'매출 추이 ('+(STATE.gran==='day'?'일별':'월별')+')'));
+      cD.appendChild(lineChart(bk, [{name:chPick, color:COLORS[0], data:bk.map(function(b){return sm[b][m];})}])); }
+    else cD.appendChild(el('div',{class:'small muted'},'추이를 그리기엔 기간 내 데이터 지점이 부족합니다(기간을 넓혀보세요).'));
+    app.appendChild(cD);
+  }
+
   // 클릭한 채널의 제품 판매 내역 (채널×제품 교차, agg_chprod)
   if(STATE.chprod.length && chPick){
     var crows=fChprodRanged().filter(function(r){ return chDisp(r.ch)===chPick; });
@@ -1205,6 +1226,7 @@ function applyPreset(p){
   if(p==='today'){ STATE.start=max; STATE.end=max; }
   else if(p==='7d'){ s=new Date(e); s.setDate(s.getDate()-6); STATE.start=fmt(s); STATE.end=max; }
   else if(p==='thismonth'){ STATE.start=max.slice(0,7)+'-01'; STATE.end=max; }
+  else if(p==='lastmonth'){ var ly=+max.slice(0,4), lm=+max.slice(5,7)-1; if(lm<1){lm=12;ly--;} STATE.start=ly+'-'+pz(lm)+'-01'; STATE.end=ly+'-'+pz(lm)+'-'+pz(new Date(ly,lm,0).getDate()); }
   else if(p==='30'){ s=new Date(e); s.setDate(s.getDate()-29); STATE.start=fmt(s); STATE.end=max; }
   else if(p==='60'){ s=new Date(e); s.setDate(s.getDate()-59); STATE.start=fmt(s); STATE.end=max; }
   else if(p==='90'){ s=new Date(e); s.setDate(s.getDate()-89); STATE.start=fmt(s); STATE.end=max; }
