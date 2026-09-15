@@ -147,6 +147,7 @@ svg{display:block;width:100%;height:auto}
     <span class="seg" id="cmpSeg">
       <button data-cmp="none">없음</button>
       <button data-cmp="prev" class="on">직전 기간</button>
+      <button data-cmp="mom">전월 동기간</button>
       <button data-cmp="yoy">전년 동기</button>
       <button data-cmp="custom">사용자지정</button>
     </span>
@@ -257,6 +258,8 @@ function dbFilter(setter, focusKey){
 }
 function fmt(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function shiftYear(d,n){ var p=d.split('-'); return (parseInt(p[0],10)+n)+'-'+p[1]+'-'+p[2]; }
+function shiftMonth(d,n){ var p=d.split('-'), mi=(+p[1]-1)+n, y=+p[0]+Math.floor(mi/12), m=((mi%12)+12)%12;
+  var last=new Date(y,m+1,0).getDate(); return y+'-'+pz(m+1)+'-'+pz(Math.min(+p[2],last)); }
 function daysBetween(s,e){ return Math.round((new Date(e)-new Date(s))/864e5)+1; }
 function monthRange(s,e){ var out=[],y=+s.slice(0,4),m=+s.slice(5,7),ey=+e.slice(0,4),em=+e.slice(5,7);
   while(y<ey||(y===ey&&m<=em)){ out.push(y+'-'+pz(m)); m++; if(m>12){m=1;y++;} } return out; }
@@ -458,6 +461,7 @@ function kpiMonthly(app,rows,label){
 function cmpRange(){
   if(STATE.cmp==='none') return null;
   var s=curStart(), e=curEnd();
+  if(STATE.cmp==='mom') return {start:shiftMonth(s,-1),end:shiftMonth(e,-1),label:'전월 동기간'};
   if(STATE.cmp==='yoy') return {start:shiftYear(s,-1),end:shiftYear(e,-1),label:'전년 동기'};
   if(STATE.cmp==='custom'){ if(!STATE.cmpStart||!STATE.cmpEnd)return null; return {start:STATE.cmpStart,end:STATE.cmpEnd,label:'사용자지정'}; }
   var days=daysBetween(s,e);
