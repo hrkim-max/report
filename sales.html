@@ -606,7 +606,11 @@ function render(){
   pc.appendChild(el('div',{class:'sect-h',style:'cursor:default;border-color:var(--accent)'},'<span class="sect-tw"><span class="ar">▶</span> '+pttl+'</span><span class="sect-sub">상단 탭에서 전환</span>'));
   var pb=el('div',{class:'sect-b'});
   if(pg==='channel') renderChannel(pb);
-  else if(pg==='surge'){ renderSurge(pb); renderProduct(pb); }
+  else if(pg==='surge'){
+    // 급상승·제품은 채널 필터와 무관하게 전체 채널 기준
+    if(STATE.chSel) pb.appendChild(el('div',{class:'small muted',style:'margin:0 0 8px'},'ℹ 급상승·제품은 채널 필터와 무관하게 <b>전체 채널</b> 기준으로 표시됩니다.'));
+    var _sel=STATE.chSel; STATE.chSel=null; renderSurge(pb); renderProduct(pb); STATE.chSel=_sel;
+  }
   else if(pg==='target') renderTarget(pb);
   pc.appendChild(pb); app.appendChild(pc);
   if(STATE.filterFocus){ var ff=document.querySelector('[data-fkey="'+STATE.filterFocus+'"]'); if(ff){ ff.focus(); try{ff.setSelectionRange(ff.value.length,ff.value.length);}catch(e){} } }
