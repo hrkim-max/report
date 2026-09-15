@@ -108,14 +108,11 @@ svg{display:block;width:100%;height:auto}
   <div class="muted small" id="subtitle">매출마스터 기준 · 개인정보 제외 집계</div>
 
   <div class="bar">
-    <div class="seg" id="viewSeg" title="해당 섹션으로 이동/펼치기">
-      <button data-v="overview">개요·추이</button>
-      <button data-v="channel">채널·제품</button>
-      <button data-v="surge">급상승</button>
-      <button data-v="target">목표 대비</button>
+    <div class="seg" id="viewSeg" title="페이지 전환 (개요·추이는 상단 고정)">
+      <button data-p="channel" class="on">채널·제품 상세</button>
+      <button data-p="surge">급상승·제품</button>
+      <button data-p="target">목표 대비</button>
     </div>
-    <button class="btn" id="expandAll" title="모든 섹션 펼치기">전체 펼치기</button>
-    <button class="btn" id="collapseAll" title="모든 섹션 접기">전체 접기</button>
     <div class="seg" id="metricSeg" title="집계 기준 금액" style="margin-left:auto">
       <button data-m="sales" class="on">매출</button>
       <button data-m="pay">실결제가</button>
@@ -223,7 +220,8 @@ var STATE = {
   sortIdx:null, sortDir:-1,
   daily:[], cat:[], prod:[], opt:[], chprod:[], proddaily:null, _pdLoading:false, chpd:null,
   tOv:{},                   // 목표 오버라이드(localStorage)
-  open:{overview:true, channel:true, product:true, surge:true, target:true}, // 한 페이지 섹션 펼침 상태
+  page:'channel',          // 페이지 탭: channel(채널·제품) / surge(급상승·제품) / target(목표)
+  open:{overview:true, channel:true, product:true, surge:true, target:true}, // (구)아코디언 상태
   loaded:false, usingMock:false
 };
 function loadOpen(){ try{ var o=JSON.parse(localStorage.getItem('salesSectOpen')||'null'); if(o&&typeof o==='object'){ Object.keys(STATE.open).forEach(function(k){ if(k in o)STATE.open[k]=!!o[k]; }); } }catch(e){} }
@@ -586,7 +584,7 @@ function renderChFilter(app){
   app.appendChild(card);
 }
 function render(){
-  document.querySelectorAll('#viewSeg button').forEach(function(b){b.classList.toggle('on',STATE.open[b.dataset.v]!==false);});
+  document.querySelectorAll('#viewSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.p===STATE.page);});
   document.querySelectorAll('#metricSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.m===STATE.metric);});
   document.getElementById('gMonth').classList.toggle('on',STATE.gran==='month');
   document.getElementById('gDay').classList.toggle('on',STATE.gran==='day');
@@ -596,8 +594,21 @@ function render(){
   document.getElementById('cmpInfo').textContent = cr? ('비교: '+cr.start+' ~ '+cr.end):'';
   document.getElementById('rangeBadge').textContent=curStart()+' ~ '+curEnd();
   var app=document.getElementById('app'); app.innerHTML='';
+  // 최상단 고정: 채널 필터 + 개요·추이
   renderChFilter(app);
-  SECTIONS.forEach(function(s){ section(app,s[0],s[1],s[2]); });
+  var ovc=el('div',{class:'sect'});
+  ovc.appendChild(el('div',{class:'sect-h',style:'cursor:default'},'<span class="sect-tw"><span class="ar">▣</span> 개요 · 추이</span><span class="sect-sub">항상 고정</span>'));
+  var ovb=el('div',{class:'sect-b'}); renderOverview(ovb); ovc.appendChild(ovb); app.appendChild(ovc);
+  // 페이지 탭 내용
+  var pg=STATE.page||'channel';
+  var pc=el('div',{class:'sect',style:'margin-top:6px'});
+  var pttl = pg==='channel'?'채널 · 제품 상세' : pg==='surge'?'급상승 · 제품' : '목표 대비';
+  pc.appendChild(el('div',{class:'sect-h',style:'cursor:default;border-color:var(--accent)'},'<span class="sect-tw"><span class="ar">▶</span> '+pttl+'</span><span class="sect-sub">상단 탭에서 전환</span>'));
+  var pb=el('div',{class:'sect-b'});
+  if(pg==='channel') renderChannel(pb);
+  else if(pg==='surge'){ renderSurge(pb); renderProduct(pb); }
+  else if(pg==='target') renderTarget(pb);
+  pc.appendChild(pb); app.appendChild(pc);
   if(STATE.filterFocus){ var ff=document.querySelector('[data-fkey="'+STATE.filterFocus+'"]'); if(ff){ ff.focus(); try{ff.setSelectionRange(ff.value.length,ff.value.length);}catch(e){} } }
 }
 
@@ -927,11 +938,11 @@ function renderProduct(app){
     app.appendChild(dc0);
 
     var g=el('div',{class:'grid2'});
-    // 채널별 (agg_chprod)
+    // 좌: 채널별 매출(전체 채널 — 이 제품이 어디서 많이 팔렸나)
     var cc=el('div',{class:'card',style:'margin:0'});
-    cc.appendChild(el('h3',null,pick+' · 채널별 매출'));
+    cc.appendChild(el('h3',null,pick+' · 채널별 매출 <span class="h-sub">전체 채널 · 어디서 많이 팔렸나</span>'));
     if(STATE.chprod.length){
-      var chm=sumBy(fChprodRanged().filter(function(r){return r.prod===pick&&chIn(r.ch);}),function(r){return chDisp(r.ch);});
+      var chm=sumBy(fChprodRanged().filter(function(r){return r.prod===pick;}),function(r){return chDisp(r.ch);});
       var charr=Object.keys(chm).map(function(k){return chm[k];}).sort(function(a,b){return b[m]-a[m];});
       var ctot=charr.reduce(function(s,x){return s+x[m];},0)||1;
       if(charr.length){ cc.appendChild(donut(charr.slice(0,8).map(function(x){return {name:x.key,val:x[m]};}),ctot));
@@ -939,15 +950,24 @@ function renderProduct(app){
       else cc.appendChild(el('div',{class:'small muted'},'해당 기간 데이터 없음'));
     } else cc.appendChild(el('div',{class:'small muted'},'채널×제품 집계 재실행 후 활성화됩니다.'));
     g.appendChild(cc);
-    // 옵션별 (agg_opt)
+    // 우: 옵션별 판매(수량·금액·증감)
     var oc=el('div',{class:'card',style:'margin:0'});
-    oc.appendChild(el('h3',null,pick+' · 옵션별 매출'));
+    var crO=cmpRange();
+    var optHasCh2=STATE.opt.some(function(r){return r.ch;});
+    oc.appendChild(el('h3',null,pick+' · 옵션별 매출 <span class="h-sub">수량·금액'+(crO?'·증감('+crO.label+'比)':'')+(optHasCh2&&STATE.chSel?' · '+Array.from(STATE.chSel).join(','):'')+'</span>'));
     if(STATE.opt.length){
-      var om=sumBy(fOpt().filter(function(r){return r.prod===pick;}),function(r){return r.opt;});
-      var oarr=Object.keys(om).map(function(k){return om[k];}).sort(function(a,b){return b[m]-a[m];});
+      var curM=monthRange(curStart(),curEnd()), cmpM=crO?monthRange(crO.start,crO.end):[];
+      var orows=STATE.opt.filter(function(r){return r.prod===pick && (!optHasCh2||!STATE.chSel||chIn(r.ch));});
+      var ocur={},oprev={};
+      orows.forEach(function(r){ if(curM.indexOf(r.ym)>=0){var o=ocur[r.opt]||(ocur[r.opt]={sales:0,pay:0,qty:0,cnt:0});o.sales+=r.sales;o.pay+=r.pay;o.qty+=r.qty;o.cnt+=r.cnt;}
+        if(crO&&cmpM.indexOf(r.ym)>=0)oprev[r.opt]=(oprev[r.opt]||0)+r[m]; });
+      var oarr=Object.keys(ocur).map(function(k){var c=ocur[k];var p=oprev[k]||0;return {key:k,sales:c.sales,pay:c.pay,qty:c.qty,cnt:c.cnt,rate:(crO?(p?((c[m]-p)/p*100):(c[m]>0?Infinity:0)):NaN),diff:c[m]-p};}).sort(function(a,b){return b[m]-a[m];});
       var ot=oarr.reduce(function(s,x){return s+x[m];},0)||1;
-      if(oarr.length) oc.appendChild(tableOf(['옵션','매출','비중','건수','수량'],oarr.map(function(x){return [x.key,x[m],x[m]/ot,x.cnt,x.qty];}),[null,'won','share','num','num'],'prod_opt','매출',true));
-      else oc.appendChild(el('div',{class:'small muted'},'해당 기간 옵션 데이터 없음'));
+      if(oarr.length){
+        var oH=['옵션','매출','비중','수량','건수'], oT=[null,'won','share','num','num'];
+        if(crO){ oH.splice(2,0,'증감액'); oT.splice(2,0,'won'); oH.splice(2,0,'증감률'); oT.splice(2,0,'pct'); }
+        oc.appendChild(tableOf(oH, oarr.map(function(x){ var b=[x.key,x[m],x[m]/ot,x.qty,x.cnt]; if(crO){ b.splice(2,0,x.diff); b.splice(2,0,x.rate); } return b; }), oT,'prod_opt','매출',true));
+      } else oc.appendChild(el('div',{class:'small muted'},'해당 기간 옵션 데이터 없음'));
     } else oc.appendChild(el('div',{class:'small muted'},'옵션 집계 재실행 후 활성화됩니다.'));
     g.appendChild(oc);
     app.appendChild(g);
@@ -1310,11 +1330,8 @@ function markCustomRange(){ STATE.preset=''; document.querySelectorAll('#presetS
 
 /* ============================ 이벤트 ============================ */
 document.getElementById('viewSeg').addEventListener('click',function(e){
-  var b=e.target.closest('button'); if(!b)return; var k=b.dataset.v;
-  STATE.open[k]=true; saveOpen(); render();
-  setTimeout(function(){ var s=document.querySelector('[data-sect="'+k+'"]'); if(s)s.scrollIntoView({behavior:'smooth',block:'start'}); },40); });
-document.getElementById('expandAll').addEventListener('click',function(){ Object.keys(STATE.open).forEach(function(k){STATE.open[k]=true;}); saveOpen(); render(); });
-document.getElementById('collapseAll').addEventListener('click',function(){ Object.keys(STATE.open).forEach(function(k){STATE.open[k]=false;}); saveOpen(); render(); });
+  var b=e.target.closest('button'); if(!b)return; STATE.page=b.dataset.p; STATE.chProdPick=null; render();
+  window.scrollTo({top:0,behavior:'smooth'}); });
 document.getElementById('metricSeg').addEventListener('click',function(e){
   var b=e.target.closest('button'); if(!b)return; STATE.metric=b.dataset.m; render(); });
 document.getElementById('presetSeg').addEventListener('click',function(e){
