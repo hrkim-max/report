@@ -219,7 +219,7 @@ var STATE = {
   surgeDim:'day', surgeCh:null, surgeChTop:1, surgeDayPick:null, // 급상승: 분석 대상 + 채널 스코프 + 선택 일자(하단 채널 상세)
   tf:'', tfFocus:false,     // (구) 표 이름 필터
   sorts:{}, filters:{}, filterFocus:null, // 표별 독립 정렬/필터 상태(key 기반)
-  chSearch:'', chPanelOpen:false, // 전역 채널 필터 검색어 + 패널 펼침
+  chSearch:'', chPanelOpen:true, // 전역 채널 필터 검색어 + 패널 펼침(기본 열림)
   sortIdx:null, sortDir:-1,
   daily:[], cat:[], prod:[], opt:[], chprod:[], proddaily:null, _pdLoading:false, chpd:null,
   tOv:{},                   // 목표 오버라이드(localStorage)
