@@ -594,13 +594,15 @@ function render(){
   document.getElementById('cmpInfo').textContent = cr? ('비교: '+cr.start+' ~ '+cr.end):'';
   document.getElementById('rangeBadge').textContent=curStart()+' ~ '+curEnd();
   var app=document.getElementById('app'); app.innerHTML='';
-  // 최상단 고정: 채널 필터 + 개요·추이
-  renderChFilter(app);
-  var ovc=el('div',{class:'sect'});
-  ovc.appendChild(el('div',{class:'sect-h',style:'cursor:default'},'<span class="sect-tw"><span class="ar">▣</span> 개요 · 추이</span><span class="sect-sub">항상 고정</span>'));
-  var ovb=el('div',{class:'sect-b'}); renderOverview(ovb); ovc.appendChild(ovb); app.appendChild(ovc);
-  // 페이지 탭 내용
   var pg=STATE.page||'channel';
+  // 최상단 채널 필터 + 개요·추이는 '채널·제품' 탭에서만 (급상승·제품, 목표 대비 탭에서는 숨김)
+  if(pg==='channel'){
+    renderChFilter(app);
+    var ovc=el('div',{class:'sect'});
+    ovc.appendChild(el('div',{class:'sect-h',style:'cursor:default'},'<span class="sect-tw"><span class="ar">▣</span> 개요 · 추이</span><span class="sect-sub">항상 고정</span>'));
+    var ovb=el('div',{class:'sect-b'}); renderOverview(ovb); ovc.appendChild(ovb); app.appendChild(ovc);
+  }
+  // 페이지 탭 내용
   var pc=el('div',{class:'sect',style:'margin-top:6px'});
   var pttl = pg==='channel'?'채널 · 제품 상세' : pg==='surge'?'급상승 · 제품' : '목표 대비';
   pc.appendChild(el('div',{class:'sect-h',style:'cursor:default;border-color:var(--accent)'},'<span class="sect-tw"><span class="ar">▶</span> '+pttl+'</span><span class="sect-sub">상단 탭에서 전환</span>'));
