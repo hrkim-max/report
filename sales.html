@@ -220,7 +220,7 @@ var STATE = {
   surgeDim:'day', surgeCh:null, surgeChTop:1, surgeDayPick:null, // 급상승: 분석 대상 + 채널 스코프 + 선택 일자(하단 채널 상세)
   tf:'', tfFocus:false,     // (구) 표 이름 필터
   sorts:{}, filters:{}, filterFocus:null, // 표별 독립 정렬/필터 상태(key 기반)
-  chSearch:'',              // 채널별 뷰 채널 체크박스 검색
+  chSearch:'', chPanelOpen:false, // 전역 채널 필터 검색어 + 패널 펼침
   sortIdx:null, sortDir:-1,
   daily:[], cat:[], prod:[], opt:[], chprod:[], proddaily:null, _pdLoading:false, chpd:null,
   tOv:{},                   // 목표 오버라이드(localStorage)
@@ -307,6 +307,13 @@ function ensureProdDaily(){
   }).catch(function(){ STATE.proddaily=[]; STATE._pdLoading=false; render(); });
 }
 function fProdDaily(){ return (STATE.proddaily||[]).filter(function(r){return inRange(r.date);}); }
+/* ===== 전역 채널 필터 (STATE.chSel: 표시채널 Set | null=전체) — 모든 섹션에 적용 ===== */
+function chIn(ch){ return !STATE.chSel || STATE.chSel.has(chDisp(ch)); }
+function gChFilter(r){ return chIn(r.ch); }
+// 채널 필터 적용 제품행: 필터 없으면 fProdDaily(전채널 정확), 있으면 채널×제품(chpd 보정)에서 선택 채널만
+function prodRowsG(){ return STATE.chSel ? fChprodRanged().filter(gChFilter) : fProdDaily(); }
+// 채널 필터 적용 제품 증감 소스(일단위): 필터 없으면 proddaily, 있으면 chpd에서 선택 채널만
+function prodDeltaSrc(){ return STATE.chSel ? (STATE.chpd||[]).filter(gChFilter) : (STATE.proddaily||[]); }
 function load(){
   try{ STATE.tOv=JSON.parse(localStorage.getItem('salesTargetOverrides')||'{}'); }catch(e){ STATE.tOv={}; }
   loadOpen();
@@ -538,6 +545,47 @@ function section(app,key,title,renderFn){
   if(open){ var body=el('div',{class:'sect-b'}); renderFn(body); wrap.appendChild(body); }
   app.appendChild(wrap);
 }
+// 전역 채널 필터 카드(최상단) — 모든 섹션에 적용
+function renderChFilter(app){
+  var m=metric();
+  var totalSum=sumBy(STATE.daily.filter(notExcl),function(r){return chDisp(r.ch);});
+  var allArr=Object.keys(totalSum).sort(function(a,b){return totalSum[b][m]-totalSum[a][m];});
+  var periodSum=sumBy(fDaily(),function(r){return chDisp(r.ch);});
+  function chVal(ch){ return periodSum[ch]?periodSum[ch][m]:0; }
+  var sel=STATE.chSel;
+  var card=el('div',{class:'card',style:'margin:0 0 14px;border-color:'+(sel?'var(--accent)':'var(--line)')});
+  var head=el('div',{class:'bar',style:'margin:0'});
+  head.appendChild(el('span',{style:'font-size:15px;font-weight:800'},'🔎 채널 필터'));
+  head.appendChild(el('span',{class:'small',style:'color:'+(sel?'var(--accent)':'var(--sub)')}, sel?('선택 '+sel.size+'개 채널 — 전체 화면에 적용 중'):'전체 채널'));
+  var tg=el('button',{class:'btn',style:'margin-left:auto'}, STATE.chPanelOpen?'접기 ▲':'채널 선택 ▼');
+  tg.onclick=function(){ STATE.chPanelOpen=!STATE.chPanelOpen; render(); };
+  head.appendChild(tg);
+  if(sel){ var clr=el('button',{class:'btn'},'필터 해제(전체)'); clr.onclick=function(){STATE.chSel=null;render();}; head.appendChild(clr); }
+  card.appendChild(head);
+  if(STATE.chPanelOpen){
+    var actbar=el('div',{class:'bar',style:'margin:10px 0 6px'});
+    var sinp=el('input',{class:'tinput',placeholder:'채널 검색…'}); sinp.value=STATE.chSearch||''; sinp.setAttribute('data-fkey','chSearch');
+    sinp.oninput=dbFilter(function(v){ STATE.chSearch=v; }, 'chSearch');
+    actbar.appendChild(sinp);
+    var bAll=el('button',{class:'btn'},'전체 선택'); bAll.onclick=function(){STATE.chSel=new Set(allArr);render();};
+    var bNone=el('button',{class:'btn'},'전체 해제'); bNone.onclick=function(){STATE.chSel=null;render();};
+    actbar.appendChild(bAll); actbar.appendChild(bNone);
+    actbar.appendChild(el('span',{class:'small muted'},'괄호=선택 기간 매출'));
+    card.appendChild(actbar);
+    var q=(STATE.chSearch||'').toLowerCase();
+    var chks=el('div',{class:'chks'});
+    allArr.filter(function(ch){return !q||ch.toLowerCase().indexOf(q)>=0;}).forEach(function(ch){
+      var on=sel?sel.has(ch):false; var zero=chVal(ch)<=0;
+      var lab=el('label',{class:'chk'+(on?' on':''),style:zero?'opacity:.55':''});
+      var cb=el('input',{type:'checkbox'}); cb.checked=on;
+      cb.onchange=function(){ if(!STATE.chSel)STATE.chSel=new Set(); if(cb.checked)STATE.chSel.add(ch); else STATE.chSel.delete(ch); if(STATE.chSel.size===0)STATE.chSel=null; render(); };
+      lab.appendChild(cb); lab.appendChild(document.createTextNode(ch+' ('+won(chVal(ch))+')'));
+      chks.appendChild(lab);
+    });
+    card.appendChild(chks);
+  }
+  app.appendChild(card);
+}
 function render(){
   document.querySelectorAll('#viewSeg button').forEach(function(b){b.classList.toggle('on',STATE.open[b.dataset.v]!==false);});
   document.querySelectorAll('#metricSeg button').forEach(function(b){b.classList.toggle('on',b.dataset.m===STATE.metric);});
@@ -549,6 +597,7 @@ function render(){
   document.getElementById('cmpInfo').textContent = cr? ('비교: '+cr.start+' ~ '+cr.end):'';
   document.getElementById('rangeBadge').textContent=curStart()+' ~ '+curEnd();
   var app=document.getElementById('app'); app.innerHTML='';
+  renderChFilter(app);
   SECTIONS.forEach(function(s){ section(app,s[0],s[1],s[2]); });
   if(STATE.filterFocus){ var ff=document.querySelector('[data-fkey="'+STATE.filterFocus+'"]'); if(ff){ ff.focus(); try{ff.setSelectionRange(ff.value.length,ff.value.length);}catch(e){} } }
 }
@@ -601,13 +650,15 @@ function app0(){}
 
 /* ---------- 개요 ---------- */
 function renderOverview(app){
-  kpiRow(app,null);
-  var m=metric(), rows=fDaily();
-  app.appendChild(trendCard('매출 추이',(STATE.gran==='month'?'월별':'일별'),rows,null));
-  // 카테고리·제품 비중도 일별 데이터(agg_prod_daily)로 계산 → 채널 비중과 기간·합계 일치
+  kpiRow(app,gChFilter);
+  var m=metric(), rows=fDaily().filter(gChFilter);
+  if(STATE.chSel) app.appendChild(el('div',{class:'small muted',style:'margin:-4px 0 8px'},'🔎 채널 필터 적용 중: '+Array.from(STATE.chSel).join(', ')));
+  app.appendChild(trendCard('매출 추이',(STATE.gran==='month'?'월별':'일별'),rows,gChFilter));
+  // 카테고리·제품 비중: 채널 필터 반영(필터 시 채널×제품, 아니면 일별 제품)
   var pdOn=STATE.proddaily&&STATE.proddaily.length;
-  var catSrc=pdOn?sumBy(fProdDaily(),function(r){return r.cat;}):sumBy(fCat(),function(r){return r.cat;});
-  var prodSrc=pdOn?sumBy(fProdDaily(),function(r){return r.prod;}):sumBy(fProd(),function(r){return r.prod;});
+  var prows=prodRowsG();
+  var catSrc=pdOn?sumBy(prows,function(r){return r.cat;}):sumBy(fCat(),function(r){return r.cat;});
+  var prodSrc=pdOn?sumBy(prows,function(r){return r.prod;}):sumBy(fProd(),function(r){return r.prod;});
   var g=el('div',{class:'grid3'});
   g.appendChild(shareCard('채널 비중',topShare(sumBy(rows,function(r){return chDisp(r.ch);}),m,8)));
   g.appendChild(shareCard('카테고리 비중',topShare(catSrc,m,8)));
@@ -629,40 +680,12 @@ function shareCard(title,arr){
   c.appendChild(leg); return c;
 }
 
-/* ---------- 채널별 (채널 선택) ---------- */
+/* ---------- 채널별 (전역 채널 필터 적용) ---------- */
 function renderChannel(app){
   var m=metric();
   var allRows=fDaily();
-  var allSum=sumBy(allRows,function(r){return chDisp(r.ch);});                 // 선택 기간 매출
-  var totalSum=sumBy(STATE.daily.filter(notExcl),function(r){return chDisp(r.ch);}); // 전 기간(목록·정렬용)
-  var allArr=Object.keys(totalSum).sort(function(a,b){return totalSum[b][m]-totalSum[a][m];}); // 전체 채널 목록
-  function chVal(ch){ return allSum[ch]?allSum[ch][m]:0; }
-
-  // 채널 선택 UI (기간과 무관하게 전체 채널 노출, 값은 선택 기간 기준)
-  var selCard=el('div',{class:'card'});
-  selCard.appendChild(el('h3',null,'채널 선택 <span class="h-sub">보고 싶은 채널만 체크 (전체 해제 시 모두 표시) · 괄호=선택 기간 매출</span>'));
-  var actbar=el('div',{class:'bar',style:'margin:0 0 6px'});
-  var sinp=el('input',{class:'tinput',placeholder:'채널 검색…'}); sinp.value=STATE.chSearch||''; sinp.setAttribute('data-fkey','chSearch');
-  sinp.oninput=dbFilter(function(v){ STATE.chSearch=v; }, 'chSearch');
-  actbar.appendChild(sinp);
-  if(STATE.chSearch){ var scl=el('button',{class:'btn'},'지우기'); scl.onclick=function(){STATE.chSearch='';STATE.filterFocus=null;render();}; actbar.appendChild(scl); }
-  var bAll=el('button',{class:'btn'},'전체 선택'); bAll.onclick=function(){STATE.chSel=new Set(allArr);render();};
-  var bNone=el('button',{class:'btn'},'전체 해제'); bNone.onclick=function(){STATE.chSel=null;render();};
-  actbar.appendChild(bAll); actbar.appendChild(bNone); selCard.appendChild(actbar);
-  var q=(STATE.chSearch||'').toLowerCase();
-  var chks=el('div',{class:'chks'});
-  allArr.filter(function(ch){return !q||ch.toLowerCase().indexOf(q)>=0;}).forEach(function(ch){
-    var on=STATE.chSel?STATE.chSel.has(ch):false;
-    var zero=chVal(ch)<=0;
-    var lab=el('label',{class:'chk'+(on?' on':''),style:zero?'opacity:.55':''});
-    var cb=el('input',{type:'checkbox'}); cb.checked=on;
-    cb.onchange=function(){ if(!STATE.chSel)STATE.chSel=new Set(); if(cb.checked)STATE.chSel.add(ch); else STATE.chSel.delete(ch); if(STATE.chSel.size===0)STATE.chSel=null; render(); };
-    lab.appendChild(cb); lab.appendChild(document.createTextNode(ch+' ('+won(chVal(ch))+')'));
-    chks.appendChild(lab);
-  });
-  selCard.appendChild(chks); app.appendChild(selCard);
-
-  var chFilter=function(r){ return !STATE.chSel || STATE.chSel.has(chDisp(r.ch)); };
+  var chFilter=gChFilter;   // 전역 채널 필터
+  if(STATE.chSel) app.appendChild(el('div',{class:'small muted',style:'margin:0 0 8px'},'🔎 채널 필터 적용 중: '+Array.from(STATE.chSel).join(', ')+' — 최상단에서 변경'));
   kpiRow(app,chFilter);
   var rows=allRows.filter(chFilter);
   var map=sumBy(rows,function(r){return chDisp(r.ch);});
@@ -824,30 +847,34 @@ function renderCategory(app){
 /* ---------- 제품별 (옵션별 포함) ---------- */
 function renderProduct(app){
   var m=metric();
+  var filt=!!STATE.chSel;                              // 전역 채널 필터
   var pdOn=STATE.proddaily&&STATE.proddaily.length;   // 일별 제품 데이터 여부
-  var rows= pdOn ? fProdDaily() : fProd();             // 있으면 일 단위 정확
+  var rows= filt ? fChprodRanged().filter(gChFilter) : (pdOn ? fProdDaily() : fProd()); // 필터 시 채널×제품
+  var dailyGran = filt ? (rows.length&&rows.some(function(r){return r.date;})) : pdOn;  // 일 단위 추이 가능?
   var map=sumBy(rows,function(r){return r.prod;});
   var catOf={}; rows.forEach(function(r){catOf[r.prod]=r.cat;});
   var arr=Object.keys(map).map(function(k){return map[k];}).sort(function(a,b){return b[m]-a[m];});
   var total=arr.reduce(function(s,x){return s+x[m];},0)||1;
   var detailProds=arr.map(function(x){return x.key;});
   var pPick=(STATE.pDetail&&detailProds.indexOf(STATE.pDetail)>=0)?STATE.pDetail:(detailProds[0]||null);
-  kpiMonthly(app,rows, pdOn?'선택 기간 (일 단위 정확)':'월 단위 · 기간이 걸친 월');
+  if(filt) app.appendChild(el('div',{class:'small muted',style:'margin:0 0 8px'},'🔎 채널 필터 적용 중: '+Array.from(STATE.chSel).join(', ')+' — 선택 채널의 제품만'));
+  kpiMonthly(app,rows, filt?'선택 채널 · 선택 기간':(pdOn?'선택 기간 (일 단위 정확)':'월 단위 · 기간이 걸친 월'));
   var top=arr.slice(0,8).map(function(x){return x.key;});
-  // 추이: 일별 데이터면 기간 길이에 따라 일/월 자동(STATE.gran), 아니면 월별
-  var byKey = pdOn ? function(r){return bucketOf(r.date);} : function(r){return r.ym;};
-  var buckets = pdOn ? uniqBuckets(rows) : uniqYm(rows);
+  // 추이: 일별 가능하면 기간 길이에 따라 일/월 자동(STATE.gran), 아니면 월별
+  var byKey = dailyGran ? function(r){return r.date?bucketOf(r.date):r.ym;} : function(r){return r.ym;};
+  var bset={}; rows.forEach(function(r){bset[byKey(r)]=1;}); var buckets=Object.keys(bset).sort();
   var series=top.map(function(pd,i){
     var sm=sumBy(rows.filter(function(r){return r.prod===pd;}),byKey);
     return {name:pd,color:COLORS[i%COLORS.length],data:buckets.map(function(b){return sm[b]?sm[b][m]:0;})}; });
   var c1=el('div',{class:'card'});
-  c1.appendChild(el('h3',null,'제품별 매출 추이 <span class="h-sub">'+(pdOn?(STATE.gran==='day'?'일별':'월별')+' (기간 따라 자동, 상단 일/월 버튼)':'월별')+' · 상위 8개</span>'));
+  c1.appendChild(el('h3',null,'제품별 매출 추이 <span class="h-sub">'+(dailyGran?(STATE.gran==='day'?'일별':'월별')+' (기간 따라 자동, 상단 일/월 버튼)':'월별')+' · 상위 8개</span>'));
   c1.appendChild(lineChart(buckets,series)); c1.appendChild(legendOf(top)); app.appendChild(c1);
-  var prodDelta = pdOn ? deltaRows(STATE.proddaily, function(r){return r.prod;}) : [];
-  var prodRate = rateMapOf(prodDelta), prodDiff = diffMapOf(prodDelta), crP = pdOn ? cmpRange() : null;
+  var dsrc=prodDeltaSrc();
+  var prodDelta = dsrc.length ? deltaRows(dsrc, function(r){return r.prod;}) : [];
+  var prodRate = rateMapOf(prodDelta), prodDiff = diffMapOf(prodDelta), crP = dsrc.length ? cmpRange() : null;
   var c2=el('div',{class:'card'});
   c2.appendChild(el('h3',null,'제품별 매출 순위 · 분석 <span class="h-sub">헤더 클릭 정렬 · <b>제품 클릭 시 아래에 상세(추이·채널·옵션)</b>'+(crP?' · 증감/증감액='+crP.label+'比':'')+'</span>'));
-  if(pdOn) c2.appendChild(insightBox('제품',prodDelta));
+  if(dsrc.length) c2.appendChild(insightBox('제품',prodDelta));
   var pH=['제품','카테고리','매출','비중','건수','수량'], pT=[null,null,'won','share','num','num'];
   if(crP){ pH.splice(3,0,'증감액'); pT.splice(3,0,'won'); pH.splice(3,0,'증감률'); pT.splice(3,0,'pct'); }
   c2.appendChild(tableOf(pH,
@@ -868,7 +895,7 @@ function renderProduct(app){
     dc0.appendChild(el('h3',null,pick+' · 일별 매출 추이 <span class="h-sub">선택 기간 · 일 단위</span>'));
     if(!CONFIG.GID_PRODDAILY) dc0.appendChild(el('div',{class:'notice small',style:'margin:0'},'제품 일별 추이는 집계 스크립트 재실행(날짜×제품 집계 추가) 후 활성화됩니다.'));
     else if(STATE.proddaily===null) dc0.appendChild(el('div',{class:'small muted'},'제품 일별 데이터 불러오는 중…'));
-    else { var pdr=fProdDaily().filter(function(r){return r.prod===pick;});
+    else { var pdr=(filt?fChprodRanged().filter(gChFilter):fProdDaily()).filter(function(r){return r.prod===pick&&r.date;});
       var dm=sumBy(pdr,function(r){return r.date;}); var bks=Object.keys(dm).sort();
       if(!bks.length) dc0.appendChild(el('div',{class:'small muted'},'선택 기간에 이 제품의 판매 데이터가 없습니다.'));
       else dc0.appendChild(lineChart(bks,[{name:pick,data:bks.map(function(b){return dm[b][m];}),color:COLORS[0]}])); }
@@ -879,7 +906,7 @@ function renderProduct(app){
     var cc=el('div',{class:'card',style:'margin:0'});
     cc.appendChild(el('h3',null,pick+' · 채널별 매출'));
     if(STATE.chprod.length){
-      var chm=sumBy(fChprodRanged().filter(function(r){return r.prod===pick;}),function(r){return chDisp(r.ch);});
+      var chm=sumBy(fChprodRanged().filter(function(r){return r.prod===pick&&chIn(r.ch);}),function(r){return chDisp(r.ch);});
       var charr=Object.keys(chm).map(function(k){return chm[k];}).sort(function(a,b){return b[m]-a[m];});
       var ctot=charr.reduce(function(s,x){return s+x[m];},0)||1;
       if(charr.length){ cc.appendChild(donut(charr.slice(0,8).map(function(x){return {name:x.key,val:x[m]};}),ctot));
@@ -906,8 +933,9 @@ function renderProduct(app){
 function dow(dateStr){ var p=dateStr.split('-'); var d=new Date(+p[0],+p[1]-1,+p[2]); return ['일','월','화','수','목','금','토'][d.getDay()]; }
 function renderSurge(app){
   var m=metric();
-  var chSum={}; STATE.daily.forEach(function(r){ if(notExcl(r))chSum[chDisp(r.ch)]=(chSum[chDisp(r.ch)]||0)+r[m]; });
+  var chSum={}; STATE.daily.forEach(function(r){ if(notExcl(r)&&chIn(r.ch))chSum[chDisp(r.ch)]=(chSum[chDisp(r.ch)]||0)+r[m]; });
   var chList=Object.keys(chSum).sort(function(a,b){return chSum[b]-chSum[a];});
+  if(STATE.chSel) app.appendChild(el('div',{class:'small muted',style:'margin:0 0 8px'},'🔎 채널 필터 적용 중: '+Array.from(STATE.chSel).join(', ')));
   var scope=(STATE.surgeCh&&chList.indexOf(STATE.surgeCh)>=0)?STATE.surgeCh:null;
 
   var bar=el('div',{class:'bar'});
@@ -925,7 +953,7 @@ function renderSurge(app){
 function surgeDay(app,scope){
   var m=metric(), W=14;
   var dmap={}, chByDay={};
-  STATE.daily.forEach(function(r){ if(!notExcl(r))return; var cd=chDisp(r.ch); if(scope&&cd!==scope)return;
+  STATE.daily.forEach(function(r){ if(!notExcl(r)||!chIn(r.ch))return; var cd=chDisp(r.ch); if(scope&&cd!==scope)return;
     dmap[r.date]=(dmap[r.date]||0)+r[m];
     if(!scope){ var cm=chByDay[r.date]||(chByDay[r.date]={}); cm[cd]=(cm[cd]||0)+r[m]; } });
   var days=Object.keys(dmap).sort(), spikes=[];
@@ -974,7 +1002,9 @@ function surgeDay(app,scope){
 }
 function surgeMoM(app,dim,scope){
   var m=metric();
-  var rowsAll = scope ? STATE.chprod.filter(function(r){return chDisp(r.ch)===scope;}) : (dim==='product'?STATE.prod:STATE.cat);
+  // 전역 채널 필터 시 채널×제품(chprod)에서 선택 채널만; 단일 scope 우선; 필터 없으면 전채널 월집계
+  var rowsAll = scope ? STATE.chprod.filter(function(r){return chDisp(r.ch)===scope;})
+              : (STATE.chSel ? STATE.chprod.filter(gChFilter) : (dim==='product'?STATE.prod:STATE.cat));
   var months={}; rowsAll.forEach(function(r){months[r.ym]=1;}); var ml=Object.keys(months).sort();
   if(!ml.length){ app.appendChild(el('div',{class:'notice small'},'해당 채널 데이터가 없습니다.')); return; }
   var lastYm=ml[ml.length-1], maxDay=parseInt(STATE.maxDate.slice(8,10),10);
