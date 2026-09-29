@@ -537,7 +537,6 @@ let STATE = {
 };
 const ATTRIB = () => STATE.attr==="14" ? 14 : 1;
 const chName = id => (CONFIG.CHANNELS.find(c=>c.id===id)||{}).name || id;
-const chColor= id => (CONFIG.CHANNELS.find(c=>c.id===id)||{}).color || "var(--net)";
 
 /* ---- 날짜 유틸 ---- */
 function dateShift(key,days){ const d=new Date(key+"T00:00:00"); d.setDate(d.getDate()+days);
@@ -894,7 +893,14 @@ function render(){
   const mByP=maemaByPeriod(STATE.mode);
   if(hasMaema()) for(const g of groups){
     const sp=periodSpan(g.key, STATE.mode);
-    g.maemaFull = maemaCovers(sp.from, sp.to);   // 이 기간의 달이 모두 마감됐는가
+    // 이 행이 '실제로 집계한' 날짜 범위로 판정합니다.
+    // (선택 기간 밖·데이터 없는 날은 애초에 안 들어가므로, 그것까지 미입력으로 보면
+    //  9월처럼 진행 중인 달이 통째로 빠져 KPI의 광고비 비중과 어긋납니다)
+    let from = sp.from, to = sp.to;
+    if(STATE.startDate && STATE.startDate>from) from=STATE.startDate;
+    if(STATE.endDate   && STATE.endDate  <to  ) to  =STATE.endDate;
+    if(DATA_MAX && DATA_MAX<to) to=DATA_MAX;
+    g.maemaFull = maemaCovers(from, to);
     if(mByP[g.key]!=null) g.maema=mByP[g.key];
     else if(g.maemaFull) g.maema=0;              // 마감된 기간인데 발주 없음 = 0원
   }
@@ -1066,7 +1072,8 @@ function render(){
   const sShare = (showShare && s.maemaF) ? s.mCost/s.maemaF*100 : null;   // 매마가 온전한 기간만으로 계산
   const sDep   = (showMaema && s.maemaF) ? s.mRev/s.maemaF*100 : null;
   html+=`</tbody><tfoot><tr>
-      <td>합계</td>
+      <td>합계 <span class="muted" style="font-weight:400;font-size:11px">${
+        rowsShown.length<view.length ? `(표시된 ${rowsShown.length}${unitTxt}만)` : `(전체 ${view.length}${unitTxt})`}</span></td>
       <td class="num">${won(s.cost)}</td>
       <td class="num">${won(s.rev)}</td>
       <td class="num">${s.roas==null?"—":pct(s.roas)}</td>
