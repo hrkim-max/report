@@ -341,25 +341,36 @@ function parseMaemaDaily(text){
       return -1; };
     return { ch:s, date:col("년/월/일","날짜","일자"), amt:col("매출","금액","매마") };
   });
-  const byKey={}, byMonth={}; let min=null,max=null,n=0;
+  // 1) 행을 먼저 모읍니다 (빈칸도 날짜가 있으면 보관)
+  const raw=[];
   for(let i=h+1;i<rows.length;i++){
     const r=rows[i]; if(!r) continue;
     for(const b of blocks){
       const cid=channelOf(r[b.ch]); if(!cid) continue;
       const ds=String(r[b.date]||"").trim().replace(/[./]/g,"-");
       const m=ds.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if(!m) continue;
-      const v=b.amt>=0?numOrNull(r[b.amt]):null;
-      if(v==null) continue;                       // 빈 칸은 스킵(0원 입력과 구분 없음 — 합산엔 영향 없음)
-      const key=`${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
-      byKey[`${key}|${cid}`]=(byKey[`${key}|${cid}`]||0)+v;
-      const ym=key.slice(0,7);
-      byMonth[`${ym}|${cid}`]=(byMonth[`${ym}|${cid}`]||0)+v;
-      if(!min||key<min) min=key;
-      if(!max||key>max) max=key;
-      n++;
+      raw.push({ key:`${m[1]}-${pad(+m[2])}-${pad(+m[3])}`, cid,
+                 v: b.amt>=0 ? numOrNull(r[b.amt]) : null });
     }
   }
-  return {byKey, byMonth, min, max, n};
+  // 2) 채널별 '마지막으로 값이 적힌 날' = 입력이 끝난 지점
+  //    그 날까지의 빈칸은 발주가 없었다는 뜻이므로 0원으로 채웁니다.
+  //    그 이후(아직 안 채운 미래 행)는 미입력으로 두고 계산에서 제외합니다.
+  const lastVal={};
+  for(const x of raw) if(x.v!=null && (!lastVal[x.cid] || x.key>lastVal[x.cid])) lastVal[x.cid]=x.key;
+  const byKey={}, byMonth={}; let min=null,max=null,n=0;
+  for(const x of raw){
+    const lim=lastVal[x.cid]; if(!lim || x.key>lim) continue;   // 아직 입력 안 된 구간
+    const v = x.v==null ? 0 : x.v;                              // 빈칸 = 0원
+    const k=`${x.key}|${x.cid}`;
+    byKey[k]=(byKey[k]||0)+v;
+    const mk=`${x.key.slice(0,7)}|${x.cid}`;
+    byMonth[mk]=(byMonth[mk]||0)+v;
+    if(!min||x.key<min) min=x.key;
+    if(!max||x.key>max) max=x.key;
+    n++;
+  }
+  return {byKey, byMonth, min, max, n, lastVal};
 }
 const hasMaema = () => !!(MAEMA && MAEMA.n>0);
 /* 매마 매출이 '마감된' 달인가 — 판단 기준은 '매마 일별 매출액' 탭 하나로 통일.
@@ -384,6 +395,7 @@ function maemaMonthClosed(ym, chSel){
    ② 구간이 걸치는 모든 달이 마감된 경우. */
 function maemaCovers(from,to){
   if(!hasMaema()) return false;
+  if(from<MAEMA.min) return false;                     // 입력 시작 이전 구간은 미입력
   if(to<=MAEMA.max) return true;                       // ① 입력이 구간 끝까지 진행됨
   let ym=from.slice(0,7); const last=to.slice(0,7);
   let guard=0;
@@ -787,19 +799,18 @@ function maemaForRange(){
   // 비율의 분모·분자를 같은 범위로 맞추기 위해 광고비·전환매출은 항상 '채널 전체'(브랜드·캠페인 필터 제외) 기준
   const chLevel = total(filterRows({brand:"all", camp:"all"}));
   if(hasMaema()){
-    const maema=maemaSum(s,e,STATE.ch);
-    if(maema==null) return {daily:true, maema:null, adShare:null, adDep:null, s, e, noData:true};
-    // 매마 탭에 값이 들어있는 실제 구간(기간이 그보다 넓으면 안내)
-    // 기간 안에서 매마가 아직 마감되지 않은 달 목록
-    const open=[]; let ym=s.slice(0,7); const last=e.slice(0,7); let guard=0;
-    while(ym<=last && guard++<600){ if(!maemaMonthClosed(ym)) open.push(ym); ym=nextYm(ym); }
-    // 입력이 구간을 못 덮으면 비율을 내지 않습니다
-    // (예: 광고비는 30일치인데 매마는 1일치 → 4700% 같은 무의미한 값이 나옴)
-    const ok = maemaCovers(s,e) && maema>0;
-    return { daily:true, maema, cost:chLevel.cost, rev:chLevel.rev,
-             adShare: ok ? chLevel.cost/maema*100 : null,
-             adDep:   ok ? chLevel.rev/maema*100  : null,
-             s, e, open, mismatch:!ok && maema>0 };
+    // 매마가 입력된 구간으로 기간을 잘라서, 광고비·전환매출도 '같은 창'으로 맞춰 비율을 냅니다.
+    // (예전에는 기간이 어긋나면 비율을 아예 안 냈는데, 창을 맞추면 항상 의미 있는 값이 나옵니다)
+    const cs = s<MAEMA.min ? MAEMA.min : s;
+    const ce = e>MAEMA.max ? MAEMA.max : e;
+    if(cs>ce) return {daily:true, maema:null, adShare:null, adDep:null, s, e, noData:true};
+    const maema=maemaSum(cs,ce,STATE.ch) || 0;    // 빈칸은 0원으로 이미 채워져 있음
+    const win = total(filterRows({brand:"all", camp:"all", s:cs, e:ce}));
+    const clipped = (cs!==s || ce!==e);
+    return { daily:true, maema, cost:win.cost, rev:win.rev,
+             adShare: maema>0 ? win.cost/maema*100 : null,
+             adDep:   maema>0 ? win.rev/maema*100  : null,
+             s, e, cs, ce, clipped };
   }
   if(!MONTHLY || !MONTHLY.months.length) return null;
   let maema=0, cost=0, rev=0;
@@ -820,10 +831,10 @@ function maemaBasisNote(m){
   if(!m) return "";
   if(m.daily){
     if(m.noData) return `<span class="muted" style="font-size:11px">(미입력)</span>`
-      + ` <span class="bdg hi" title="'매마 일별 매출액' 탭에서 ${m.s} ~ ${m.e} 구간이 모두 비어 있습니다. 최종 입력일은 ${MAEMA.max} 입니다.">시트 미입력 · 최종 ${MAEMA.max}</span>`;
-    return `<span class="muted" style="font-size:11px">(일별 · ${m.s} ~ ${m.e})</span>`
-      + (m.mismatch
-         ? ` <span class="bdg lo" title="'매마 일별 매출액' 탭 최종 입력일이 ${MAEMA.max} 라서 선택 기간(~${m.e})을 다 덮지 못합니다${m.open&&m.open.length?` · 미마감: ${m.open.join(", ")}`:""}">일부만 입력 · 최종 ${MAEMA.max}</span>` : "");
+      + ` <span class="bdg hi" title="'매마 일별 매출액' 탭 입력 구간(${MAEMA.min} ~ ${MAEMA.max})과 선택 기간(${m.s} ~ ${m.e})이 겹치지 않습니다.">입력 구간 밖</span>`;
+    return `<span class="muted" style="font-size:11px">(일별 · ${m.cs} ~ ${m.ce})</span>`
+      + (m.clipped
+         ? ` <span class="bdg lo" title="'매마 일별 매출액' 탭 입력이 ${MAEMA.max} 까지라, 선택 기간(${m.s} ~ ${m.e}) 중 입력된 ${m.cs} ~ ${m.ce} 구간만으로 계산했습니다. 광고비·전환매출도 같은 구간으로 맞춰서 비율이 왜곡되지 않습니다.">입력 구간 기준</span>` : "");
   }
   if(m.used.length){
     const span = m.used.length===1 ? m.used[0] : `${m.used[0]}~${m.used[m.used.length-1]} ${m.used.length}개월`;
@@ -926,21 +937,26 @@ function render(){
   const chLbl = STATE.ch==="all" ? "로켓+윙" : chName(STATE.ch);
   const mm=maemaForRange();
 
-  /* --- 매마 매출 미입력 안내 --- */
-  if(mm && mm.daily && (mm.noData || mm.mismatch)){
+  /* --- 매마 매출 입력 구간 안내 --- */
+  if(mm && mm.daily && mm.noData){
     html+=`<div class="banner">
-      📥 <b>선택 기간의 매마 매출이 시트에 ${mm.noData?"입력되지 않았습니다":"일부만 입력돼 있습니다"}.</b>
-      ('매마 일별 매출액' 탭 최종 입력일 <b>${MAEMA.max}</b> · 선택 기간 ${mm.s} ~ ${mm.e})
-      <br>· 매마 매출 ${mm.noData?"금액과 ":""}<b>광고비 비중·광고 의존도</b>는 표시되지 않습니다.
-      광고비는 전 기간인데 매마는 일부만 잡혀 비율이 왜곡되기 때문입니다.
-      <br>· 시트에 해당 기간 매마 매출을 입력하고 <b>↻ 새로고침</b> 하면 자동으로 반영됩니다.
-      ${MAEMA.max?`(입력된 구간을 보려면 기간을 <b>${MAEMA.max}</b> 이전으로 맞춰보세요.)`:""}
+      📥 <b>선택 기간에 매마 매출 입력이 없습니다.</b>
+      ('매마 일별 매출액' 탭 입력 구간 <b>${MAEMA.min} ~ ${MAEMA.max}</b> · 선택 기간 ${mm.s} ~ ${mm.e})
+      <br>· 시트에 입력하고 <b>↻ 새로고침</b> 하면 자동 반영됩니다. 빈칸은 발주가 없었던 것으로 보고 <b>0원</b>으로 계산합니다.
+    </div>`;
+  } else if(mm && mm.daily && mm.clipped){
+    html+=`<div class="banner">
+      📥 <b>매마 매출은 시트에 입력된 ${mm.cs} ~ ${mm.ce} 구간까지만 집계했습니다.</b>
+      (선택 기간 ${mm.s} ~ ${mm.e} · '매마 일별 매출액' 탭 최종 입력 <b>${MAEMA.max}</b>)
+      <br>· <b>광고비 비중·광고 의존도는 같은 구간의 광고비·전환매출로 계산</b>하므로 비율이 왜곡되지 않습니다.
+      상단 KPI의 광고비·전환매출은 선택 기간 전체 값이라 이 구간 합계와는 다릅니다.
+      <br>· 빈칸은 발주가 없었던 날로 보고 <b>0원</b>으로 계산합니다.
     </div>`;
   }
 
   // 29CM 리포트와 동일하게 KPI 8장
-  const shareBadge = (mm && (mm.mismatch||mm.noData))
-    ? ` <span class="bdg hi" title="'매마 일별 매출액' 탭 입력이 선택 기간(${mm.s} ~ ${mm.e})을 덮지 못합니다(최종 입력 ${hasMaema()?MAEMA.max:"-"}). 비율이 왜곡되므로 표시하지 않습니다.">기간 불일치</span>` : "";
+  const shareBadge = (mm && mm.daily && mm.clipped)
+    ? ` <span class="bdg lo" title="매마 입력 구간(${mm.cs} ~ ${mm.ce})의 광고비·매마 매출로 계산했습니다">${mm.cs} ~ ${mm.ce} 기준</span>` : "";
   const chLevelBadge = canUseConfirmed() ? ""
     : ` <span class="bdg lo" title="매마 매출은 채널 단위 값이라 캠페인 선택이 반영되지 않습니다">채널 전체</span>`;
   const cards=[
