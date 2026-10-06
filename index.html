@@ -179,13 +179,15 @@
 const PUB = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-ywBj4zc7jHC-mtxFQw1BL6sXBb28ao1lAXeym_weEJsavusCp27MFKMnkpGq22JbiI4rqz38eBqE/pub?single=true&output=csv&gid=";
 
 const CONFIG = {
-  // 브랜드별 탭. ad=광고 데이터 gid, sales=실판매액 gid(없으면 "").
+  // 브랜드별 탭. ad=광고 데이터 gid(들), sales=실판매액 gid(없으면 "").
+  // ad 는 배열: [옛 포맷 탭, 새 '광고 데이터 (26.09.28~)' 탭]. 전부 읽어 날짜 기준으로 합산되며,
+  // 두 번째 칸에 새 탭의 게시 gid(PUB+"gid")를 넣으면 연결됩니다. 비워 두면("") 그 칸은 무시.
   // 실판매액 탭을 새로 만들면 해당 브랜드 sales 에 gid 만 넣으면 보정 ROAS가 나옵니다.
   // alias = '월간보고' 탭 브랜드 칸에 어떤 이름으로 적어도 인식되도록 하는 별칭.
   BRANDS: [
-    { id:"ps",  name:"프로젝트슬립", ad: PUB+"26296784",  sales: PUB+"1703421879", alias:["프로젝트슬립","PS","프슬"] },
-    { id:"pss", name:"평소생활",     ad: PUB+"654701962", sales: PUB+"315301298",  alias:["평소생활","PSL","평생","PSS"] },
-    { id:"lp",  name:"라포즈",       ad: PUB+"141289368", sales: PUB+"1619021893", alias:["라포즈","LP","라포스"] },
+    { id:"ps",  name:"프로젝트슬립", ad:[PUB+"26296784",  PUB+"1333946440"], sales: PUB+"1703421879", alias:["프로젝트슬립","PS","프슬"] },
+    { id:"pss", name:"평소생활",     ad:[PUB+"654701962", PUB+"1226936363"], sales: PUB+"315301298",  alias:["평소생활","PSL","평생","PSS"] },
+    { id:"lp",  name:"라포즈",       ad:[PUB+"141289368", PUB+"509409072"], sales: PUB+"1619021893", alias:["라포즈","LP","라포스"] },
   ],
 
   // '월간보고' 탭 — 어드민 확정 월별 집계(브랜드 3블록 가로, 각 행 '브랜드' 칸으로 구분).
@@ -249,23 +251,41 @@ function parseCSV(t){
   return rows;
 }
 
-/* ---- 광고 CSV → 일별 집계 ---- */
+/* '날짜' 한 칸 → [y,m,d]. 2026-09-28 · 2026. 9. 28 · 2026/9/28 · 2026년 9월 28일 · 26.09.28 · 9/28(연도 생략=올해) 허용 */
+function parseDateCell(v){
+  const s=String(v??"").trim(); if(!s) return null;
+  let mm=s.match(/^(\d{4})[.\-\/년\s]+(\d{1,2})[.\-\/월\s]+(\d{1,2})/);
+  if(mm) return [+mm[1],+mm[2],+mm[3]];
+  mm=s.match(/^(\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if(mm) return [2000+ +mm[1],+mm[2],+mm[3]];
+  mm=s.match(/^(\d{1,2})[.\-\/](\d{1,2})$/);
+  if(mm) return [new Date().getFullYear(),+mm[1],+mm[2]];
+  return null;
+}
+
+/* ---- 광고 CSV → 일별 집계 ----
+   옛 포맷 탭(년/월/일 · 자사 제품명 · 집행 광고비 · 전환 매출 …)과
+   어드민 '성과 리포트' 새 포맷 탭(날짜 · 상품명 · 집행광고비 · 구매전환액(전체/직접/간접) …) 모두 같은 파서로 읽는다. */
 function parseAd(text){
   const rows=parseCSV(text);
-  let h=rows.findIndex(r=>r.some(c=>c.includes("집행 광고비")));
+  let h=rows.findIndex(r=>r.some(c=>c.includes("집행 광고비")||c.includes("집행광고비")));
   if(h<0) throw new Error("광고 시트에서 '집행 광고비' 헤더를 찾지 못했습니다.");
   const hdr=rows[h].map(c=>c.trim());
   const find=(names)=>{ for(const n of names){ const i=hdr.findIndex(c=>c===n); if(i>=0) return i;}
                         for(const n of names){ const i=hdr.findIndex(c=>c.includes(n)); if(i>=0) return i;} return -1; };
-  const ci={ y:find(["년"]), m:find(["월"]), d:find(["일"]), name:find(["자사 제품명","제품명"]),
-             cost:find(["집행 광고비","광고비"]),
-             rev:find(["전환 매출"]), rvDir:find(["직접 전환 매출"]), rvInd:find(["간접 전환 매출"]),
-             cnt:find(["판매 수"]), imp:find(["노출 수"]), clk:find(["클릭 수"]),
-             camp:find(["캠페인"]) };
+  // 지표별 [옛 탭 열 이름, 새 성과리포트 열 이름] 별칭. 정확 일치 우선, 없으면 부분 일치.
+  const ci={ y:find(["년"]), m:find(["월"]), d:find(["일"]), date:find(["날짜"]),   // 날짜: '년/월/일' 3칸 또는 '날짜' 1칸
+             name:find(["자사 제품명","제품명","상품명"]),
+             cost:find(["집행 광고비","집행광고비","광고비"]),
+             rev:find(["전환 매출","구매전환액(전체)"]), rvDir:find(["직접 전환 매출","구매전환액(직접)"]), rvInd:find(["간접 전환 매출","구매전환액(간접)"]),
+             cnt:find(["판매 수","구매전환수(전체)"]), imp:find(["노출 수","노출수"]), clk:find(["클릭 수","클릭수"]),
+             camp:find(["캠페인"]) };   // 새 탭에 '캠페인' 열을 직접 채우면 그것(정확 일치) 우선, 없으면 파일의 '캠페인명'
   const daily={}; const prodDaily=[];
   for(let i=h+1;i<rows.length;i++){
     const r=rows[i]; if(!r || r.length<=ci.cost) continue;
-    const y=parseInt(r[ci.y]),m=parseInt(r[ci.m]),d=parseInt(r[ci.d]);
+    let y,m,d;
+    if(ci.date>=0){ const dt=parseDateCell(r[ci.date]); if(dt) [y,m,d]=dt; }
+    if(!y){ y=parseInt(r[ci.y]); m=parseInt(r[ci.m]); d=parseInt(r[ci.d]); }
     if(!y||!m||!d) continue;
     const k=`${y}-${pad(m)}-${pad(d)}`;
     const cost=num(r[ci.cost]), adRev=num(r[ci.rev]);
@@ -277,6 +297,25 @@ function parseAd(text){
     const camp=ci.camp>=0?String(r[ci.camp]||"").trim():"";   // 광고 데이터 탭에 '캠페인' 열이 있으면 사용
     if(name) prodDaily.push({key:k,name,cost,adRev,rvDir,rvInd,cnt,imp,clk,camp});
   }
+  return {daily, prodDaily};
+}
+
+/* 브랜드의 광고 탭이 여러 개(옛 포맷 탭 + 새 '광고 데이터 (26.09.28~)' 탭)면 전부 읽어 날짜 기준으로 합산.
+   CONFIG.BRANDS[].ad 에 gid URL 하나(문자열) 또는 배열. 빈 칸은 건너뛰고, 일부 탭이 비어 있거나 실패해도 나머지로 진행. */
+async function loadAd(ad){
+  const list=(Array.isArray(ad)?ad:[ad]).filter(u=>u&&String(u).trim());
+  const daily={}, prodDaily=[]; let ok=0, firstErr=null;
+  for(const u of list){
+    try{
+      const p=parseAd(await fetchCSV(u)); ok++;
+      for(const [k,v] of Object.entries(p.daily)){
+        const t=(daily[k] ||= {cost:0,adRev:0,rvDir:0,rvInd:0,cnt:0,imp:0,clk:0});
+        for(const f in v) t[f]+=v[f];
+      }
+      prodDaily.push(...p.prodDaily);
+    }catch(e){ firstErr ||= e; console.warn("광고 탭 로드 실패(건너뜀):", u, e.message); }
+  }
+  if(!ok) throw firstErr || new Error("광고 데이터 탭을 읽지 못했습니다.");
   return {daily, prodDaily};
 }
 
@@ -1306,7 +1345,7 @@ async function ensureAllBrandAd(){
   for(const b of CONFIG.BRANDS){
     if(STATE.cache[b.id]) continue;
     try{
-      const p=parseAd(await fetchCSV(b.ad));
+      const p=await loadAd(b.ad);
       let sales={}; if(b.sales&&b.sales.trim()){ try{ sales=parseSales(await fetchCSV(b.sales)); }catch(e){} }
       STATE.cache[b.id]={daily:mergeDaily(p.daily,sales),prodDaily:p.prodDaily,hasSalesUrl:!!(b.sales&&b.sales.trim()),loadedAt:new Date(),salesFailed:false};
     }catch(e){ STATE.cache[b.id]={daily:[],prodDaily:[],hasSalesUrl:false,loadedAt:new Date(),error:true}; }
@@ -1492,7 +1531,7 @@ async function load(force){
   $("#content").innerHTML=`<div class="loading"><span class="spin"></span>${brand.name} 데이터를 불러오는 중…</div>`;
   // 광고 데이터
   let ad;
-  try{ const p=parseAd(await fetchCSV(brand.ad)); ad=p.daily; STATE.prodDaily=p.prodDaily; }
+  try{ const p=await loadAd(brand.ad); ad=p.daily; STATE.prodDaily=p.prodDaily; }
   catch(e){
     $("#content").innerHTML = e.kind==="blocked"
       ? publishHelp(brand.name+" 광고")
